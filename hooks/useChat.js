@@ -1,12 +1,15 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { mapMessageToGiftedChat } from '../utils/chatHelpers';
 
 export default function useChat({ feathersClient, conversationId, targetUser, currentUserId, companyId, config }) {
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [isConnected, setIsConnected] = useState(true);
   const [conversation, setConversation] = useState(null);
   const [conversationType, setConversationType] = useState('individual');
   const [resolvedId, setResolvedId] = useState(conversationId);
+  const mounted = useRef(true);
 
   const markAsRead = useCallback(async (idToMark) => {
     try {
@@ -25,7 +28,7 @@ export default function useChat({ feathersClient, conversationId, targetUser, cu
         }
       );
     } catch (error) {
-      console.error('Failed to mark messages as read', error);
+      console.log('Failed to mark messages as read', error);
     }
   }, [resolvedId, currentUserId, companyId, feathersClient]);
 
@@ -34,13 +37,13 @@ export default function useChat({ feathersClient, conversationId, targetUser, cu
     
     try {
       setLoading(true);
+      setError(null);
       let activeId = resolvedId;
 
       // 1. Resolve ID if missing but targetUser is provided
       if (!activeId && targetUser) {
         const convService = feathersClient.service('api/conversations');
         
-        // Find existing individual chat
         const query = { type: 'individual', companyId };
         if (targetUser.userType === 'member') {
             query.clientId = targetUser.id;
@@ -50,6 +53,7 @@ export default function useChat({ feathersClient, conversationId, targetUser, cu
         }
 
         const response = await convService.find({ query });
+        
         const resData = response.data || response;
         
         let existingConv = resData.find(c => 
@@ -57,7 +61,6 @@ export default function useChat({ feathersClient, conversationId, targetUser, cu
         );
 
         if (!existingConv) {
-          // Create new one if not found
           const createData = {
             type: 'individual',
             name: targetUser.name,
@@ -83,13 +86,14 @@ export default function useChat({ feathersClient, conversationId, targetUser, cu
           return;
       }
       
-      // Fetch conversation details
       const conv = await feathersClient.service('api/conversations').get(activeId, { query: { companyId } });
-      setConversation(conv);
-      const type = (conv.type === 'group' || conv.isGroup) ? 'group' : 'individual';
-      setConversationType(type);
       
-      // Fetch history (limit 50)
+      if (mounted.current) {
+        setConversation(conv);
+        const type = (conv.type === 'group' || conv.isGroup) ? 'group' : 'individual';
+        setConversationType(type);
+      }
+      
       const response = await feathersClient.service('api/messages').find({
         query: {
           conversationId: activeId,
@@ -99,20 +103,26 @@ export default function useChat({ feathersClient, conversationId, targetUser, cu
         }
       });
       
-      const feathersMessages = response.data || response;
+      const feathersMessages = response.data || response || [];
       const historicalGifted = feathersMessages.map(msg => mapMessageToGiftedChat(msg, currentUserId));
       
-      setMessages(prev => {
-        const existingIds = new Set(prev.map(m => String(m._id)));
-        const newHistory = historicalGifted.filter(m => !existingIds.has(String(m._id)));
-        return [...prev, ...newHistory].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-      });
-      
-      markAsRead(activeId);
-    } catch (error) {
-      console.error('Failed to fetch messages:', error);
+      if (mounted.current) {
+        setMessages(prev => {
+          const existingIds = new Set(prev.map(m => String(m._id)));
+          const newHistory = historicalGifted.filter(m => !existingIds.has(String(m._id)));
+          return [...prev, ...newHistory].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+        });
+        markAsRead(activeId);
+      }
+    } catch (err) {
+      console.log('Failed to fetch messages:', err);
+      if (mounted.current) {
+        setError(err.message || 'Failed to load messages');
+      }
     } finally {
-      setLoading(false);
+      if (mounted.current) {
+        setLoading(false);
+      }
     }
   }, [resolvedId, targetUser, currentUserId, companyId, feathersClient, markAsRead]);
 
@@ -120,40 +130,59 @@ export default function useChat({ feathersClient, conversationId, targetUser, cu
     try {
       return await feathersClient.service('api/messages').create(messageData, { query: { companyId } });
     } catch (error) {
-      console.error('Failed to send message:', error);
+      console.log('Failed to send message:', error);
       throw error;
     }
   }, [feathersClient, companyId]);
 
-  // Real-time listeners
   useEffect(() => {
-    // Eager reset when switching conversations
+    mounted.current = true;
     setMessages([]);
     setLoading(true);
     setConversation(null);
 
     fetchMessages();
 
+    const socket = feathersClient.io || (feathersClient.getSocket && feathersClient.getSocket());
+    
+    // Set initial connection state
+    if (socket) {
+      setIsConnected(socket.connected);
+      if (!socket.connected) {
+        setError('Connection error. Please check your internet.');
+      }
+    }
+
+    const handleConnect = () => {
+      setIsConnected(true);
+      setError(null);
+      fetchMessages();
+    };
+
+    const handleDisconnect = () => setIsConnected(false);
+
+    if (socket) {
+      socket.on('connect', handleConnect);
+      socket.on('disconnect', handleDisconnect);
+      setIsConnected(socket.connected);
+    }
+
     const messagesService = feathersClient.service('api/messages');
 
     const onMessageCreated = (message) => {
       if (message.conversationId == resolvedId) {
         setMessages((prev) => {
-          // 1. Check if message already exists by ID
           const existsById = prev.some(m => String(m._id) === String(message.id));
           if (existsById) return prev;
           
-          // 2. Check if this is a response to our optimistic update
           const isFromMe = String(message.senderId) === String(currentUserId);
           if (isFromMe) {
-            // Find an optimistic message with same content sent recently
             const optimisticIdx = prev.findIndex(m => 
               m.pending === true && 
               (m.text === message.content || m.image === message.content || m.documentUrl === message.content)
             );
             
             if (optimisticIdx !== -1) {
-              // Replace optimistic message with real message
               const newMessages = [...prev];
               newMessages[optimisticIdx] = mapMessageToGiftedChat(message, currentUserId);
               return newMessages;
@@ -192,6 +221,11 @@ export default function useChat({ feathersClient, conversationId, targetUser, cu
     messagesService.on('removed', onMessageRemoved);
 
     return () => {
+      mounted.current = false;
+      if (socket) {
+        socket.off('connect', handleConnect);
+        socket.off('disconnect', handleDisconnect);
+      }
       messagesService.removeListener('created', onMessageCreated);
       messagesService.removeListener('patched', onMessagePatched);
       messagesService.removeListener('removed', onMessageRemoved);
@@ -202,6 +236,8 @@ export default function useChat({ feathersClient, conversationId, targetUser, cu
     messages,
     setMessages,
     loading,
+    error,
+    isConnected,
     conversation,
     conversationType,
     fetchMessages,
@@ -209,3 +245,4 @@ export default function useChat({ feathersClient, conversationId, targetUser, cu
     markAsRead,
   };
 }
+

@@ -40,10 +40,13 @@ export default function useFileUpload({ config, apiBaseUrl, accessToken }) {
         }
       }
 
+      const ext = (fileName || 'file.dat').split('.').pop();
+      const newFileName = `${require('moment')().format('DD-MM-YYYY')}_${Date.now()}.${ext}`;
+
       const formData = new FormData();
       formData.append('file', {
         uri: finalUri,
-        name: fileName || (fileType?.startsWith('image/') ? 'image.jpg' : 'file'),
+        name: newFileName,
         type: fileType || 'application/octet-stream',
       });
 

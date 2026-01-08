@@ -1,12 +1,19 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 
 export default function useConversations({ feathersClient, currentUserId, companyId }) {
   const [conversations, setConversations] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [isConnected, setIsConnected] = useState(true);
+  const mounted = useRef(true);
 
   const fetchConversations = useCallback(async (silent = false) => {
+    if (!feathersClient || !currentUserId) return;
+    
     try {
       if (!silent) setLoading(true);
+      setError(null);
+
       const response = await feathersClient.service('api/conversations').find({
         query: {
           companyId,
@@ -14,15 +21,24 @@ export default function useConversations({ feathersClient, currentUserId, compan
           $limit: 100
         }
       });
-      setConversations(response.data || response);
-    } catch (error) {
-      console.error('[useConversations] Fetch Error:', error);
+      
+      if (mounted.current) {
+        setConversations(response.data || response || []);
+      }
+    } catch (err) {
+      console.log('[useConversations] Fetch Error:', err);
+      if (mounted.current) {
+        setError(err.message || 'Could not connect to chat server');
+      }
     } finally {
-      if (!silent) setLoading(false);
+      if (mounted.current && !silent) {
+        setLoading(false);
+      }
     }
-  }, [feathersClient, companyId]);
+  }, [feathersClient, companyId, currentUserId]);
 
   useEffect(() => {
+    mounted.current = true;
     let active = true;
     setConversations([]);
     
@@ -33,11 +49,45 @@ export default function useConversations({ feathersClient, currentUserId, compan
     
     fetchConversations();
 
+    const socket = feathersClient.io || (feathersClient.getSocket && feathersClient.getSocket());
+    
+    // Set initial connection state
+    if (socket) {
+      setIsConnected(socket.connected);
+      if (!socket.connected) {
+        setError('Connection error. Please check your internet.');
+        setLoading(false);
+      }
+    }
+
+    const handleConnect = () => {
+      setIsConnected(true);
+      setError(null);
+      fetchConversations(true); // Silent refresh on reconnect
+    };
+
+    const handleDisconnect = () => {
+      setIsConnected(false);
+      setError('Chat disconnected. Connecting...');
+      setLoading(false);
+    };
+
+    const handleConnectError = (err) => {
+      setIsConnected(false);
+      setError('Connection error. Please check your internet.');
+      setLoading(false);
+    };
+
+    if (socket) {
+      socket.on('connect', handleConnect);
+      socket.on('disconnect', handleDisconnect);
+      socket.on('connect_error', handleConnectError);
+    }
+    
     const convService = feathersClient.service('api/conversations');
     const msgService = feathersClient.service('api/messages');
 
     const onConvCreated = (conv) => {
-      // Club Scoping: Only add if it belongs to the active club
       if (companyId && conv.companyId && String(conv.companyId) !== String(companyId)) return;
       
       setConversations(prev => {
@@ -47,11 +97,11 @@ export default function useConversations({ feathersClient, currentUserId, compan
     };
 
     const onConvPatched = (updated) => {
+      if (!active) return;
       setConversations(prev => {
         const index = prev.findIndex(c => String(c.id) === String(updated.id));
         
         if (index === -1) {
-            // Discovery via Patch: Only add if it belongs to current club
             if (companyId && updated.companyId && String(updated.companyId) !== String(companyId)) return prev;
             return [updated, ...prev];
         }
@@ -62,7 +112,6 @@ export default function useConversations({ feathersClient, currentUserId, compan
         
         let merged;
         if (!isGroup) {
-          // Individual Chats: Use Max-Merge for unreadCount to prevent overwriting local real-time increments
           const { unreadCount: serverUnread, imageURL, name, participants, title, ...neutralUpdates } = updated;
           
           let finalUnread = existing.unreadCount || 0;
@@ -76,7 +125,6 @@ export default function useConversations({ feathersClient, currentUserId, compan
             unreadCount: finalUnread
           };
         } else {
-          // Group Chats: Same Max-Merge logic
           const { unreadCount: serverUnread, ...groupUpdates } = updated;
           let finalUnread = existing.unreadCount || 0;
           
@@ -109,7 +157,6 @@ export default function useConversations({ feathersClient, currentUserId, compan
         const index = prev.findIndex(c => String(c.id) === String(message.conversationId));
         
         if (index === -1) {
-            // Discovery: Fetch the new conversation details scoped to current club
             feathersClient.service('api/conversations').get(message.conversationId, { query: { companyId } })
               .then(conv => {
                 if (active && String(conv.companyId) === String(companyId)) {
@@ -161,6 +208,12 @@ export default function useConversations({ feathersClient, currentUserId, compan
 
     return () => {
       active = false;
+      mounted.current = false;
+      if (socket) {
+        socket.off('connect', handleConnect);
+        socket.off('disconnect', handleDisconnect);
+        socket.off('connect_error', handleConnectError);
+      }
       convService.removeListener('created', onConvCreated);
       convService.removeListener('patched', onConvPatched);
       convService.removeListener('updated', onConvPatched);
@@ -173,6 +226,9 @@ export default function useConversations({ feathersClient, currentUserId, compan
   return {
     conversations,
     loading,
+    error,
+    isConnected,
     fetchConversations
   };
 }
+

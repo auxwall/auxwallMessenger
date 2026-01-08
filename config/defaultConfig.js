@@ -49,7 +49,7 @@ export const memberConfig = {
   features: {
     groupChats: true,
     fileUploads: true,
-    imageDownload: false,
+    imageDownload: true,
     staffSearch: true,
     memberSearch: false,
     documentSharing: true,

@@ -19,7 +19,7 @@ const ChatList = ({ feathersClient, currentUser, onSelectConversation, config = 
     if (onTabChange) onTabChange(tab);
   };
 
-  const { conversations, loading, fetchConversations } = useConversations({ 
+  const { conversations, loading, error, isConnected, fetchConversations } = useConversations({ 
     feathersClient, 
     currentUserId: currentUser?.id,
     companyId: currentUser?.companyId 
@@ -104,6 +104,23 @@ const ChatList = ({ feathersClient, currentUser, onSelectConversation, config = 
 
   const renderEmpty = () => {
     if (loading) return null;
+
+    if (error && conversations.length === 0) {
+      return (
+        <View style={styles.emptyContainer}>
+          <Ionicons name="alert-circle-outline" size={60} color="#FF3B30" />
+          <Text style={[styles.emptyText, { color: theme.textColor || '#333', textAlign: 'center', paddingHorizontal: 40 }]}>
+            {error}
+          </Text>
+          <TouchableOpacity 
+            style={[styles.retryButton, { backgroundColor: theme.primaryColor || '#6dcff6' }]} 
+            onPress={() => fetchConversations()}
+          >
+            <Text style={styles.retryText}>Retry</Text>
+          </TouchableOpacity>
+        </View>
+      );
+    }
     
     return (
       <View style={styles.emptyContainer}>
@@ -129,7 +146,7 @@ const ChatList = ({ feathersClient, currentUser, onSelectConversation, config = 
       {renderHeader()}
       {renderTabs()}
       
-      {loading && conversations.length === 0 ? (
+      {loading && conversations.length === 0 && !error ? (
         <View style={styles.center}>
           <ActivityIndicator color={theme.primaryColor || '#6dcff6'} size="large" />
         </View>
@@ -207,6 +224,26 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   activeTabText: {
+    fontWeight: 'bold',
+  },
+  offlineBanner: {
+    paddingVertical: 4,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  offlineText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  retryButton: {
+    marginTop: 20,
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 8,
+  },
+  retryText: {
+    color: '#FFF',
     fontWeight: 'bold',
   }
 });

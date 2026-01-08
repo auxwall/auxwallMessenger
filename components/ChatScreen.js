@@ -37,9 +37,12 @@ const ChatScreen = ({
     messages,
     setMessages,
     loading,
+    error,
+    isConnected,
     conversation,
     conversationType,
     sendMessage,
+    fetchMessages,
   } = useChat({
     feathersClient,
     conversationId,
@@ -88,7 +91,7 @@ const ChatScreen = ({
       
       setGroupParticipants(enriched);
     } catch (err) {
-      console.error("Failed to fetch participants", err);
+      console.log("Failed to fetch participants", err);
     } finally {
       setParticipantsLoading(false);
     }
@@ -130,7 +133,7 @@ const ChatScreen = ({
               await fetchGroupParticipants();
               alert("Member removed successfully");
             } catch (err) {
-              console.error("Failed to remove member", err);
+              console.log("Failed to remove member", err);
               alert("Failed to remove member: " + err.message);
             } finally {
               setParticipantsLoading(false);
@@ -160,7 +163,7 @@ const ChatScreen = ({
       setShowAddMember(false);
       alert("Members added successfully");
     } catch (err) {
-      console.error("Failed to add members", err);
+      console.log("Failed to add members", err);
       throw err; // Let CreateGroup handle the error alert
     } finally {
       setAddLoading(false);
@@ -317,7 +320,7 @@ const ChatScreen = ({
         Alert.alert('Error', 'Sharing is not available on this device');
       }
     } catch (error) {
-      console.error(error);
+      console.log(error);
       Alert.alert('Error', 'Failed to open document');
     } finally {
       setDownloading(false);
@@ -652,6 +655,23 @@ const ChatScreen = ({
     );
   }
 
+  if (error && messages.length === 0) {
+    return (
+      <View style={chatStyles.center}>
+        <Ionicons name="alert-circle-outline" size={60} color="#FF3B30" />
+        <Text style={[chatStyles.errorText, { color: config.theme?.textColor || '#333' }]}>
+          {error}
+        </Text>
+        <TouchableOpacity 
+          style={[chatStyles.retryButton, { backgroundColor: config.theme?.primaryColor || '#6dcff6' }]} 
+          onPress={() => fetchMessages()}
+        >
+          <Text style={chatStyles.retryText}>Retry</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
   return (
     <SafeAreaView style={chatStyles.safeArea} edges={['top', 'bottom', 'left', 'right']}>
       {/* Header */}
@@ -745,6 +765,33 @@ const styles = (theme) => StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: theme.backgroundColor || '#e5ddd5',
+  },
+  errorText: {
+    marginTop: 15,
+    fontSize: 16,
+    textAlign: 'center',
+    paddingHorizontal: 40,
+  },
+  retryButton: {
+    marginTop: 20,
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 8,
+  },
+  retryText: {
+    color: '#FFF',
+    fontWeight: 'bold',
+  },
+  offlineBanner: {
+    backgroundColor: '#FF3B30',
+    paddingVertical: 4,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  offlineText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: 'bold',
   },
   header: {
     flexDirection: 'row',
