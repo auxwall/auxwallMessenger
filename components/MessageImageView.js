@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { View, Text, TouchableOpacity, Image, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as FileSystem from 'expo-file-system/legacy';
-import * as MediaLibrary from 'expo-media-library';
+import * as Sharing from 'expo-sharing';
 
 const MessageImageView = ({ currentMessage, renderFooter, isMine, config }) => {
     const [imgError, setImgError] = useState(false);
@@ -19,17 +19,13 @@ const MessageImageView = ({ currentMessage, renderFooter, isMine, config }) => {
     
     const downloadImage = async () => {
         try {
-            const { status } = await MediaLibrary.requestPermissionsAsync();
-            if (status !== 'granted') {
-                Alert.alert("Permission denied", "We need permission to save images.");
-                return;
-            }
-
             const fileUri = `${FileSystem.documentDirectory}${new Date().getTime()}.jpg`;
             const { uri } = await FileSystem.downloadAsync(currentMessage.image, fileUri);
             
-            await MediaLibrary.createAssetAsync(uri);
-            Alert.alert("Saved", "Image saved to gallery!");
+            // This opens the native "Save / Share" sheet. 
+            // On Android, the user can click "Save to device" which works WITHOUT permissions.
+            await Sharing.shareAsync(uri); 
+            
         } catch (e) {
             console.error(e);
             Alert.alert("Error", "Could not save image.");
