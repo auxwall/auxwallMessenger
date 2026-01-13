@@ -11,7 +11,7 @@ export default function useChat({ feathersClient, conversationId, targetUser, cu
   const [resolvedId, setResolvedId] = useState(conversationId);
   const [hasMore, setHasMore] = useState(true);
   const [loadingEarlier, setLoadingEarlier] = useState(false);
-  const PAGE_LIMIT = 10;
+  const PAGE_LIMIT = 50;
   const mounted = useRef(true);
 
   const markAsRead = useCallback(async (idToMark) => {
