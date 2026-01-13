@@ -38,11 +38,13 @@ const ChatScreen = ({
     setMessages,
     loading,
     error,
-    isConnected,
     conversation,
     conversationType,
     sendMessage,
     fetchMessages,
+    loadEarlier,
+    hasMore,
+    loadingEarlier
   } = useChat({
     feathersClient,
     conversationId,
@@ -191,23 +193,23 @@ const ChatScreen = ({
     };
     setMessages((prev) => GiftedChat.append(prev, [tempMsg]));
 
-    // Upload
-    const url = await uploadFileToBackend(fileData.uri, fileData.name, fileData.mimeType);
-    if (url) {
-      sendMessage({
-        conversationId,
-        content: url,
-        type: 'image',
-        senderId: currentUser?.id,
-      }).then((realMessage) => {
-        setMessages((prev) => {
-          if (prev.some(m => String(m._id) === String(realMessage.id))) {
-            return prev.filter(m => m._id !== tempMsg._id);
-          }
-          return prev.map(m => m._id === tempMsg._id ? mapMessageToGiftedChat(realMessage, currentUser?.id) : m);
-        });
-      }).catch(() => {
-        setMessages((prev) => prev.filter((m) => m._id !== tempMsg._id));
+    // Upload with metadata - Backend will create the message
+    const uploadResult = await uploadFileToBackend(fileData.uri, fileData.name, fileData.mimeType, {
+      conversationId: conversationId,
+      type: 'image',
+      senderId: currentUser?.id,
+      companyId: currentUser?.companyId || config?.companyId
+    });
+
+    if (uploadResult && uploadResult.message) {
+      const realMessage = uploadResult.message;
+      setMessages((prev) => {
+        // If real-time listener already added it, don't do anything
+        if (prev.some(m => String(m._id) === String(realMessage.id))) {
+          return prev.filter(m => m._id !== tempMsg._id);
+        }
+        // Otherwise replace temp with real message mapped for Gifted Chat
+        return prev.map(m => m._id === tempMsg._id ? mapMessageToGiftedChat(realMessage, currentUser?.id) : m);
       });
     } else {
       setMessages((prev) => prev.filter((m) => m._id !== tempMsg._id));
@@ -235,23 +237,21 @@ const ChatScreen = ({
     };
     setMessages((prev) => GiftedChat.append(prev, [tempMsg]));
 
-    // Upload (compression is now handled inside useFileUpload)
-    const url = await uploadFileToBackend(fileData.uri, fileData.name, fileData.mimeType);
-    if (url) {
-      sendMessage({
-        conversationId,
-        content: url,
-        type: 'image',
-        senderId: currentUser?.id,
-      }).then((realMessage) => {
-        setMessages((prev) => {
-          if (prev.some(m => String(m._id) === String(realMessage.id))) {
-            return prev.filter(m => m._id !== tempMsg._id);
-          }
-          return prev.map(m => m._id === tempMsg._id ? mapMessageToGiftedChat(realMessage, currentUser?.id) : m);
-        });
-      }).catch(() => {
-        setMessages((prev) => prev.filter((m) => m._id !== tempMsg._id));
+    // Upload with metadata
+    const uploadResult = await uploadFileToBackend(fileData.uri, fileData.name, fileData.mimeType, {
+      conversationId: conversationId,
+      type: 'image',
+      senderId: currentUser?.id,
+      companyId: currentUser?.companyId || config?.companyId
+    });
+
+    if (uploadResult && uploadResult.message) {
+      const realMessage = uploadResult.message;
+      setMessages((prev) => {
+        if (prev.some(m => String(m._id) === String(realMessage.id))) {
+          return prev.filter(m => m._id !== tempMsg._id);
+        }
+        return prev.map(m => m._id === tempMsg._id ? mapMessageToGiftedChat(realMessage, currentUser?.id) : m);
       });
     } else {
       setMessages((prev) => prev.filter((m) => m._id !== tempMsg._id));
@@ -279,23 +279,21 @@ const ChatScreen = ({
     };
     setMessages((prev) => GiftedChat.append(prev, [tempMsg]));
 
-    // Upload
-    const url = await uploadFileToBackend(fileData.uri, fileData.name, fileData.mimeType);
-    if (url) {
-      sendMessage({
-        conversationId,
-        content: url,
-        type: 'document',
-        senderId: currentUser?.id,
-      }).then((realMessage) => {
-        setMessages((prev) => {
-          if (prev.some(m => String(m._id) === String(realMessage.id))) {
-            return prev.filter(m => m._id !== tempMsg._id);
-          }
-          return prev.map(m => m._id === tempMsg._id ? mapMessageToGiftedChat(realMessage, currentUser?.id) : m);
-        });
-      }).catch(() => {
-        setMessages((prev) => prev.filter((m) => m._id !== tempMsg._id));
+    // Upload with metadata
+    const uploadResult = await uploadFileToBackend(fileData.uri, fileData.name, fileData.mimeType, {
+      conversationId: conversationId,
+      type: 'document',
+      senderId: currentUser?.id,
+      companyId: currentUser?.companyId || config?.companyId
+    });
+
+    if (uploadResult && uploadResult.message) {
+      const realMessage = uploadResult.message;
+      setMessages((prev) => {
+        if (prev.some(m => String(m._id) === String(realMessage.id))) {
+          return prev.filter(m => m._id !== tempMsg._id);
+        }
+        return prev.map(m => m._id === tempMsg._id ? mapMessageToGiftedChat(realMessage, currentUser?.id) : m);
       });
     } else {
       setMessages((prev) => prev.filter((m) => m._id !== tempMsg._id));
@@ -723,6 +721,23 @@ const ChatScreen = ({
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 5}
       >
+        {/* Load More Button */}
+        {hasMore && !loading && (
+          <View style={chatStyles.loadMoreContainer}>
+            <TouchableOpacity 
+              style={chatStyles.loadMoreButton}
+              onPress={loadEarlier}
+              disabled={loadingEarlier}
+            >
+              {loadingEarlier ? (
+                <ActivityIndicator size="small" color={config.theme?.primaryColor || '#6dcff6'} />
+              ) : (
+                <Text style={chatStyles.loadMoreText}>Load More Messages</Text>
+              )}
+            </TouchableOpacity>
+          </View>
+        )}
+
         <GiftedChat
           messages={messages}
           onSend={(newMsgs) => onSend(newMsgs)}
@@ -756,6 +771,29 @@ const ChatScreen = ({
 };
 
 const styles = (theme) => StyleSheet.create({
+  loadMoreContainer: {
+    padding: 8,
+    alignItems: 'center',
+    backgroundColor: theme.backgroundColor || '#e5ddd5',
+  },
+  loadMoreButton: {
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    backgroundColor: theme.cardBackground || '#ffffff',
+    borderRadius: 20,
+    minWidth: 150,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  loadMoreText: {
+    color: theme.primaryColor || '#6dcff6',
+    fontWeight: '600',
+    fontSize: 13,
+  },
   safeArea: {
     flex: 1,
     backgroundColor: theme.cardBackground || '#ffffff',

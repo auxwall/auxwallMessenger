@@ -9,6 +9,9 @@ export default function useChat({ feathersClient, conversationId, targetUser, cu
   const [conversation, setConversation] = useState(null);
   const [conversationType, setConversationType] = useState('individual');
   const [resolvedId, setResolvedId] = useState(conversationId);
+  const [hasMore, setHasMore] = useState(true);
+  const [loadingEarlier, setLoadingEarlier] = useState(false);
+  const PAGE_LIMIT = 10;
   const mounted = useRef(true);
 
   const markAsRead = useCallback(async (idToMark) => {
@@ -99,11 +102,14 @@ export default function useChat({ feathersClient, conversationId, targetUser, cu
           conversationId: activeId,
           companyId,
           $sort: { createdAt: -1 },
-          $limit: 50
+          $limit: PAGE_LIMIT
         }
       });
       
       const feathersMessages = response.data || response || [];
+      if (mounted.current) {
+        setHasMore(feathersMessages.length >= PAGE_LIMIT);
+      }
       const historicalGifted = feathersMessages.map(msg => mapMessageToGiftedChat(msg, currentUserId));
       
       if (mounted.current) {
@@ -139,6 +145,7 @@ export default function useChat({ feathersClient, conversationId, targetUser, cu
     mounted.current = true;
     setMessages([]);
     setLoading(true);
+    setHasMore(true);
     setConversation(null);
 
     fetchMessages();
@@ -170,17 +177,15 @@ export default function useChat({ feathersClient, conversationId, targetUser, cu
     const messagesService = feathersClient.service('api/messages');
 
     const onMessageCreated = (message) => {
-      if (message.conversationId == resolvedId) {
+      if (String(message.conversationId) === String(resolvedId)) {
         setMessages((prev) => {
           const existsById = prev.some(m => String(m._id) === String(message.id));
           if (existsById) return prev;
           
           const isFromMe = String(message.senderId) === String(currentUserId);
           if (isFromMe) {
-            const optimisticIdx = prev.findIndex(m => 
-              m.pending === true && 
-              (m.text === message.content || m.image === message.content || m.documentUrl === message.content)
-            );
+            // Look for a temporary message (one with generic ID or no ID yet, and pending status)
+            const optimisticIdx = prev.findLastIndex(m => m.pending === true && m.messageType === message.type);
             
             if (optimisticIdx !== -1) {
               const newMessages = [...prev];
@@ -232,6 +237,40 @@ export default function useChat({ feathersClient, conversationId, targetUser, cu
     };
   }, [resolvedId, currentUserId, feathersClient, fetchMessages, markAsRead]);
 
+  const loadEarlier = useCallback(async () => {
+    if (!resolvedId || !hasMore || loadingEarlier || loading) return;
+
+    setLoadingEarlier(true);
+    try {
+      const skip = messages.filter(m => !m.pending).length;
+      const response = await feathersClient.service('api/messages').find({
+        query: {
+          conversationId: resolvedId,
+          companyId,
+          $sort: { createdAt: -1 },
+          $limit: PAGE_LIMIT,
+          $skip: skip
+        }
+      });
+
+      const data = response.data || response || [];
+      if (mounted.current) {
+        if (data.length < PAGE_LIMIT) setHasMore(false);
+
+        const historicalGifted = data.map(msg => mapMessageToGiftedChat(msg, currentUserId));
+        setMessages(prev => {
+          const existingIds = new Set(prev.map(m => String(m._id)));
+          const newHistory = historicalGifted.filter(m => !existingIds.has(String(m._id)));
+          return [...prev, ...newHistory].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+        });
+      }
+    } catch (e) {
+      console.log("Failed to load earlier messages", e);
+    } finally {
+      if (mounted.current) setLoadingEarlier(false);
+    }
+  }, [resolvedId, hasMore, loadingEarlier, loading, messages, companyId, currentUserId, feathersClient, PAGE_LIMIT]);
+
   return {
     messages,
     setMessages,
@@ -243,6 +282,9 @@ export default function useChat({ feathersClient, conversationId, targetUser, cu
     fetchMessages,
     sendMessage,
     markAsRead,
+    loadEarlier,
+    hasMore,
+    loadingEarlier
   };
 }
 

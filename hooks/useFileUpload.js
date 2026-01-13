@@ -15,7 +15,7 @@ export default function useFileUpload({ config, apiBaseUrl, accessToken }) {
     return `${baseUrl}/api/chat-upload`;
   };
 
-  const uploadFileToBackend = useCallback(async (fileUri, fileName, fileType) => {
+  const uploadFileToBackend = useCallback(async (fileUri, fileName, fileType, metadata = {}) => {
     if (!config?.features?.fileUploads) {
       Alert.alert('Error', 'File uploads are disabled');
       return null;
@@ -44,8 +44,15 @@ export default function useFileUpload({ config, apiBaseUrl, accessToken }) {
       const newFileName = `${require('moment')().format('DD-MM-YYYY')}_${Date.now()}.${ext}`;
 
       const formData = new FormData();
+      
+      // Add metadata first for Multer
+      if (metadata.conversationId) formData.append('conversationId', metadata.conversationId);
+      if (metadata.type) formData.append('type', metadata.type);
+      if (metadata.senderId) formData.append('senderId', metadata.senderId);
+      if (metadata.companyId) formData.append('companyId', metadata.companyId);
+
       formData.append('file', {
-        uri: finalUri,
+        uri: Platform.OS === 'ios' ? finalUri.replace('file://', '') : finalUri,
         name: newFileName,
         type: fileType || 'application/octet-stream',
       });
@@ -77,7 +84,8 @@ export default function useFileUpload({ config, apiBaseUrl, accessToken }) {
 
       const result = await response.json();
       if (result.success) {
-        return result.url;
+        // Return result object if message was created, otherwise just the URL
+        return result.message ? result : result.url;
       } else {
         throw new Error(result.message || 'Upload failed');
       }
