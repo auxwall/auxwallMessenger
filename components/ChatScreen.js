@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
-import { View, StyleSheet, ActivityIndicator, Platform, TouchableOpacity, Image, KeyboardAvoidingView, Text, Alert, Modal, ScrollView } from 'react-native';
+import { View, StyleSheet, ActivityIndicator, Platform, TouchableOpacity, Image, KeyboardAvoidingView, Text, Alert, Modal, ScrollView, useColorScheme } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { GiftedChat, Bubble, Send, InputToolbar, Composer, MessageText, Actions } from 'react-native-gifted-chat';
 import { Ionicons } from '@expo/vector-icons';
@@ -31,6 +31,8 @@ const ChatScreen = ({
   const [headerImgError, setHeaderImgError] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const textInputRef = useRef(null);
+  const scheme = useColorScheme();
+  const isDark = scheme === 'dark';
 
   // Use custom hooks
   const {
@@ -753,7 +755,7 @@ const ChatScreen = ({
           scrollToBottom
           infiniteScroll
           textInputProps={{
-            color: config.theme?.textColor || '#303030',
+            color: isDark ?  config.theme?.textColor : config.theme?.textColor || '#000',
             ref: textInputRef,
             blurOnSubmit: false,
             returnKeyType: 'default',
