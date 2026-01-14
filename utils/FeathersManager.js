@@ -23,8 +23,8 @@ export class FeathersManager {
   async init({ apiUrl, storage, storageKey = 'accessToken' }) {
     if (this.client) return this.client;
 
-    const socketUrl = apiUrl.includes('/api') ? apiUrl.split('/api')[0] : apiUrl;
-    const apiBaseUrl = apiUrl.endsWith('/api') ? apiUrl : (apiUrl + "/api");
+    const socketUrl = apiUrl.endsWith('/api') ? apiUrl.slice(0, -4): apiUrl;
+    const apiBaseUrl = apiUrl.endsWith('/api') ? apiUrl : `${apiUrl}/api`;
 
     this.apiUrl = apiBaseUrl;
     this.client = feathers();
