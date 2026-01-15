@@ -542,7 +542,7 @@ const ChatScreen = ({
   const renderComposer = (props) => (
     <Composer
       {...props}
-      textInputStyle={chatStyles.composer}
+      textInputStyle={[chatStyles.composer, { color: isDark ? config.theme?.textColor : config.theme?.textColor || '#000' }]}
       placeholderTextColor={config.theme?.lightTextColor || '#8696a0'}
     />
   );
@@ -1022,7 +1022,6 @@ const styles = (theme) => StyleSheet.create({
     minHeight: 44,
   },
   composer: {
-    color: theme.textColor || '#303030',
     fontSize: 16,
     lineHeight: 20,
     paddingTop: Platform.OS === 'ios' ? 10 : 10,
