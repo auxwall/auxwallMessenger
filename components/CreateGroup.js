@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TextInput, TouchableOpacity, FlatList, ActivityIndicator, Alert, Image } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { defaultConfig } from '../config/defaultConfig';
 
@@ -34,6 +34,7 @@ const CreateGroup = ({
   onAddMembers
 }) => {
   
+  const insets = useSafeAreaInsets();
   const [groupName, setGroupName] = useState('');
   const [activeSubTab, setActiveSubTab] = useState('members');
   const [searchTerm, setSearchTerm] = useState('');
@@ -200,7 +201,7 @@ const CreateGroup = ({
 
       <FlatList data={filteredPeople} renderItem={renderPerson} keyExtractor={item => `${item.userType}-${item.id}`} contentContainerStyle={compStyles.list} ListEmptyComponent={<Text style={compStyles.emptyText}>No one found</Text>}/>
 
-      <View style={compStyles.footer}>
+      <View style={[compStyles.footer, { paddingBottom: insets.bottom }]}>
         {isAddingMembers ? (
           <TouchableOpacity style={[compStyles.submitBtn, (selectedParticipants.length === 0 || creating) && compStyles.disabledBtn]} onPress={handleAddMembers} disabled={selectedParticipants.length === 0 || creating}>
             {creating ? <ActivityIndicator color="#fff" /> : <Text style={compStyles.submitBtnText}>Add Members</Text>}
