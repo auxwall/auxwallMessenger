@@ -755,7 +755,7 @@ const ChatScreen = ({
           scrollToBottom
           infiniteScroll
           textInputProps={{
-            color: isDark ?  config.theme?.textColor : config.theme?.textColor || '#000',
+            style: { color: isDark ?  config.theme?.textColor : config.theme?.textColor || '#000' },
             ref: textInputRef,
             blurOnSubmit: false,
             returnKeyType: 'default',
