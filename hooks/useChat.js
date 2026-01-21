@@ -134,12 +134,16 @@ export default function useChat({ feathersClient, conversationId, targetUser, cu
 
   const sendMessage = useCallback(async (messageData) => {
     try {
-      return await feathersClient.service('api/messages').create(messageData, { query: { companyId } });
+      const dataToSend = { ...messageData };
+      if (!dataToSend.conversationId && resolvedId) {
+        dataToSend.conversationId = resolvedId;
+      }
+      return await feathersClient.service('api/messages').create(dataToSend, { query: { companyId } });
     } catch (error) {
       console.log('Failed to send message:', error);
       throw error;
     }
-  }, [feathersClient, companyId]);
+  }, [feathersClient, companyId, resolvedId]);
 
   useEffect(() => {
     mounted.current = true;
