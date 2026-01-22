@@ -60,7 +60,9 @@ export default function useChat({ feathersClient, conversationId, targetUser, cu
         const resData = response.data || response;
         
         let existingConv = resData.find(c => 
-          c.participants && c.participants.some(p => String(p.userId) === String(targetUser.id))
+          c.participants && 
+          c.participants.some(p => String(p.userId) === String(targetUser.id)) &&
+          c.participants.some(p => String(p.userId) === String(currentUserId))
         );
 
         if (!existingConv) {
