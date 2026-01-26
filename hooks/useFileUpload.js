@@ -9,9 +9,6 @@ export default function useFileUpload({ config, apiBaseUrl, accessToken }) {
 
   const getUploadUrl = () => {
     let baseUrl = apiBaseUrl;
-    if (baseUrl?.endsWith('/api')) {
-      baseUrl = baseUrl.replace('/api', '');
-    }
     return `${baseUrl}/api/chat-upload`;
   };
 
