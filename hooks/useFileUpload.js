@@ -23,10 +23,10 @@ export default function useFileUpload({ config, apiBaseUrl, accessToken }) {
 
   const getUploadUrl = () => {
     let baseUrl = apiBaseUrl;
-    if (baseUrl.endsWith('/api')) {
-      baseUrl = baseUrl.replace('/api', '');
-    }
-    return `${baseUrl}/api/chat-upload`;
+    // if (baseUrl.endsWith('/api')) {
+    //   baseUrl = baseUrl.replace('/api', '');
+    // }
+    return `${baseUrl}/chat-upload`;
   };
 
   const uploadFileToBackend = useCallback(async (fileUri, fileName, fileType, metadata = {}) => {
