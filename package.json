@@ -9,10 +9,12 @@
   "keywords": ["chat", "messenger", "react-native"],
   "author": "Auxwall",
   "license": "ISC",
- "peerDependencies": {
+  "peerDependencies": {
     "react": ">=18 <20",
     "react-native": ">=0.72",
     "react-native-gifted-chat": "^2 || ^3",
-    "moment": "^2.29.0"
+    "moment": "^2.29.0",
+    "expo-av": "^16.0.8",
+    "expo-screen-capture": "~6.0.7"
   }
 }

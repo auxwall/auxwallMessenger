@@ -27,6 +27,10 @@ export const mapMessageToGiftedChat = (msg, currentUserId) => {
     giftedMsg.text = `📄 ${msg.content.split('/').pop()}`;
     giftedMsg.documentUrl = msg.content;
   }
+  
+  if (msg.type === 'audio') {
+    giftedMsg.audio = msg.content;
+  }
 
   return giftedMsg;
 };

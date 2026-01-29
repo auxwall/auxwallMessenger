@@ -6,7 +6,9 @@ import { Ionicons } from '@expo/vector-icons';
 import moment from 'moment';
 import * as Sharing from 'expo-sharing';
 import * as FileSystem from 'expo-file-system/legacy';
+import * as ScreenCapture from 'expo-screen-capture';
 import MessageImageView from './MessageImageView';
+import AudioPlayer from './AudioPlayer';
 import useChat from '../hooks/useChat';
 import useFileUpload from '../hooks/useFileUpload';
 import { defaultConfig } from '../config/defaultConfig';
@@ -14,20 +16,8 @@ import { mapMessageToGiftedChat } from '../utils/chatHelpers';
 import usePeople from '../hooks/usePeople';
 import CreateGroup from './CreateGroup';
 
-const ChatScreen = ({ 
-  config = defaultConfig, 
-  feathersClient, 
-  conversationId, 
-  targetUser,
-  currentUser, 
-  accessToken, 
-  apiBaseUrl, 
-  title = 'Chat', 
-  headerImage, 
-  navigation, 
-  onBack,
-  trainer
-}) => {
+const ChatScreen = ({ config = defaultConfig, feathersClient, conversationId, targetUser, currentUser, accessToken, apiBaseUrl, title = 'Chat', headerImage, navigation, onBack, trainer }) => {
+  
   const [headerImgError, setHeaderImgError] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const textInputRef = useRef(null);
@@ -35,26 +25,7 @@ const ChatScreen = ({
   const isDark = scheme === 'dark';
 
   // Use custom hooks
-  const {
-    messages,
-    setMessages,
-    loading,
-    error,
-    conversation,
-    conversationType,
-    sendMessage,
-    fetchMessages,
-    loadEarlier,
-    hasMore,
-    loadingEarlier
-  } = useChat({
-    feathersClient,
-    conversationId,
-    targetUser,
-    currentUserId: currentUser?.id,
-    companyId: currentUser?.companyId,
-    config,
-  });
+  const { messages, setMessages, loading, error, conversation, conversationType, sendMessage, fetchMessages, loadEarlier, hasMore, loadingEarlier } = useChat({ feathersClient, conversationId, targetUser, currentUserId: currentUser?.id, companyId: currentUser?.companyId, config });
 
   const [showGroupInfo, setShowGroupInfo] = useState(false);
   const [groupParticipants, setGroupParticipants] = useState([]);
@@ -66,13 +37,7 @@ const ChatScreen = ({
   const companyId = currentUser?.companyId || config?.companyId;
 
   // 1. Hook for fetching potential new members
-  const { members, staff, loading: peopleLoading } = usePeople({
-    apiBaseUrl,
-    companyId,
-    accessToken,
-    search: memberSearch,
-    trainer: trainer
-  });
+  const { members, staff, loading: peopleLoading } = usePeople({ apiBaseUrl, companyId, accessToken, search: memberSearch, trainer: trainer });
 
   const isAdmin = conversation?.createdBy == currentUser?.id;
 
@@ -107,17 +72,21 @@ const ChatScreen = ({
     }
   }, [showGroupInfo, fetchGroupParticipants]);
 
-  const {
-    uploading,
-    uploadFileToBackend,
-    pickImage,
-    takePhoto,
-    pickDocument,
-  } = useFileUpload({
-    config,
-    apiBaseUrl,
-    accessToken,
-  });
+  const { uploading, isRecording, uploadFileToBackend, pickImage, takePhoto, pickDocument, startRecording, stopRecording, pauseRecording, resumeRecording, cancelRecording, isPaused, recordingStatus } = useFileUpload({ config, apiBaseUrl, accessToken, });
+
+  const [waveformPoints, setWaveformPoints] = useState([]);
+  
+
+  useEffect(() => {
+    if (isRecording && !isPaused && recordingStatus?.metering !== undefined) {
+      // Collect metering points for waveform (normalize to 0-1 range roughly)
+      const point = Math.max(0, (recordingStatus.metering + 160) / 160);
+      setWaveformPoints(prev => [...prev.slice(-40), point]);
+    }
+    if (!isRecording) {
+      setWaveformPoints([]);
+    }
+  }, [recordingStatus, isRecording, isPaused]);
 
   const handleRemoveParticipant = async (participantId) => {
     Alert.alert(
@@ -211,7 +180,7 @@ const ChatScreen = ({
           return prev.filter(m => m._id !== tempMsg._id);
         }
         // Otherwise replace temp with real message mapped for Gifted Chat
-        return prev.map(m => m._id === tempMsg._id ? mapMessageToGiftedChat(realMessage, currentUser?.id) : m);
+        return prev.map(m => m._id === tempMsg._id ? mapMessageToGiftedChat(realMessage, currentUser?.id, apiBaseUrl) : m);
       });
     } else {
       setMessages((prev) => prev.filter((m) => m._id !== tempMsg._id));
@@ -253,7 +222,7 @@ const ChatScreen = ({
         if (prev.some(m => String(m._id) === String(realMessage.id))) {
           return prev.filter(m => m._id !== tempMsg._id);
         }
-        return prev.map(m => m._id === tempMsg._id ? mapMessageToGiftedChat(realMessage, currentUser?.id) : m);
+        return prev.map(m => m._id === tempMsg._id ? mapMessageToGiftedChat(realMessage, currentUser?.id, apiBaseUrl) : m);
       });
     } else {
       setMessages((prev) => prev.filter((m) => m._id !== tempMsg._id));
@@ -295,7 +264,7 @@ const ChatScreen = ({
         if (prev.some(m => String(m._id) === String(realMessage.id))) {
           return prev.filter(m => m._id !== tempMsg._id);
         }
-        return prev.map(m => m._id === tempMsg._id ? mapMessageToGiftedChat(realMessage, currentUser?.id) : m);
+        return prev.map(m => m._id === tempMsg._id ? mapMessageToGiftedChat(realMessage, currentUser?.id, apiBaseUrl) : m);
       });
     } else {
       setMessages((prev) => prev.filter((m) => m._id !== tempMsg._id));
@@ -324,6 +293,24 @@ const ChatScreen = ({
       Alert.alert('Error', 'Failed to open document');
     } finally {
       setDownloading(false);
+    }
+  };
+
+  // Handle voice recording
+  const handleVoiceUpload = async () => {
+    const uploadResult = await stopRecording({
+      conversationId,
+      senderId: currentUser?.id,
+      companyId: currentUser?.companyId || config?.companyId
+    });
+    if (uploadResult && uploadResult.message) {
+      const realMessage = uploadResult.message;
+      setMessages((prev) => {
+        if (prev.some(m => String(m._id) === String(realMessage.id))) {
+          return prev;
+        }
+        return GiftedChat.append(prev, [mapMessageToGiftedChat(realMessage, currentUser?.id, apiBaseUrl)]);
+      });
     }
   };
 
@@ -356,7 +343,7 @@ const ChatScreen = ({
              return prev.filter(m => m._id !== tempId);
           }
           // Otherwise replace temp with real
-          return prev.map(m => m._id === tempId ? mapMessageToGiftedChat(realMessage, currentUser?.id) : m);
+          return prev.map(m => m._id === tempId ? mapMessageToGiftedChat(realMessage, currentUser?.id, apiBaseUrl) : m);
         });
       }).catch((error) => {
         setMessages((prev) => prev.filter((m) => m._id !== tempId));
@@ -400,6 +387,7 @@ const ChatScreen = ({
     const isMine = props.currentMessage.user._id === String(currentUser?.id);
     const msg = props.currentMessage;
     const isDoc = msg.documentUrl;
+    const isAudio = msg.audio;
 
     // Render time + ticks footer
     const renderFooter = () => (
@@ -448,13 +436,14 @@ const ChatScreen = ({
           }}
           renderTime={() => null}
           renderTicks={() => null}
+          renderMessageAudio={(audioProps) => (
+            <View style={chatStyles.audioBubbleContainer}>
+              <AudioPlayer url={audioProps.currentMessage.audio} isMine={isMine} theme={config.theme} />
+              {renderFooter()}
+            </View>
+          )}
           renderMessageImage={(imageProps) => (
-            <MessageImageView
-              currentMessage={imageProps.currentMessage}
-              renderFooter={renderFooter}
-              isMine={isMine}
-              config={config}
-            />
+            <MessageImageView currentMessage={imageProps.currentMessage} renderFooter={renderFooter} isMine={isMine} config={config} />
           )}
           renderMessageText={(textProps) => {
             if (isDoc) {
@@ -522,22 +511,74 @@ const ChatScreen = ({
   const renderTicks = () => null;
 
   const renderSend = (props) => (
-    <Send {...props} containerStyle={chatStyles.sendContainer}>
-      <View style={chatStyles.sendingContainer}>
-        <Ionicons name="send" size={26} color={config.theme?.primaryColor || '#6dcff6'} />
-      </View>
-    </Send>
+    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+      <Send {...props} containerStyle={chatStyles.sendContainer}>
+        <View style={chatStyles.sendingContainer}>
+          <Ionicons name="send" size={26} color={config.theme?.primaryColor || '#6dcff6'} />
+        </View>
+      </Send>
+      {!props.text && !isRecording && (
+        <TouchableOpacity style={chatStyles.micButton} onPress={() => startRecording()}>
+          <Ionicons name="mic-outline" size={26} color={config.theme?.primaryColor || '#6dcff6'} />
+        </TouchableOpacity>
+      )}
+    </View>
   );
 
-  const renderInputToolbar = (props) => (
-    <InputToolbar
-      {...props}
-      containerStyle={chatStyles.inputToolbar}
-      primaryStyle={chatStyles.inputPrimary}
-      renderComposer={renderComposer}
-      renderActions={renderActions}
-    />
+  const renderRecordingToolbar = () => (
+    <View style={chatStyles.recordingToolbar}>
+      <TouchableOpacity onPress={cancelRecording} style={chatStyles.recordingActionBtn}>
+        <Ionicons name="trash-outline" size={24} color="#FF3B30" />
+      </TouchableOpacity>
+      
+      <View style={chatStyles.recordingInfo}>
+        <Text style={chatStyles.recordingTimer}>
+          {moment.utc(recordingStatus?.durationMillis || 0).format('m:ss')}
+        </Text>
+        <View style={chatStyles.waveformContainer}>
+          {waveformPoints.map((p, i) => (
+            <View 
+              key={i} 
+              style={[
+                chatStyles.waveformPoint, 
+                { height: Math.max(4, p * 30), backgroundColor: config.theme?.primaryColor || '#6dcff6' }
+              ]} 
+            />
+          ))}
+        </View>
+      </View>
+
+      <TouchableOpacity 
+        onPress={isPaused ? resumeRecording : pauseRecording} 
+        style={chatStyles.recordingActionBtn}
+      >
+        <Ionicons 
+          name={isPaused ? "play-circle" : "pause-circle"} 
+          size={32} 
+          color={isPaused ? (config.theme?.primaryColor || '#6dcff6') : "#FF3B30"} 
+        />
+      </TouchableOpacity>
+
+      <TouchableOpacity onPress={handleVoiceUpload} style={chatStyles.recordingSendBtn}>
+        <Ionicons name="send" size={24} color="#fff" />
+      </TouchableOpacity>
+    </View>
   );
+
+  const renderInputToolbar = (props) => {
+    if (isRecording) {
+      return renderRecordingToolbar();
+    }
+    return (
+      <InputToolbar
+        {...props}
+        containerStyle={chatStyles.inputToolbar}
+        primaryStyle={chatStyles.inputPrimary}
+        renderComposer={renderComposer}
+        renderActions={renderActions}
+      />
+    );
+  };
 
   const renderComposer = (props) => (
     <Composer
@@ -709,10 +750,10 @@ const ChatScreen = ({
       </View>
 
       {/* Upload/Download status */}
-      {(uploading || downloading) && (
+      {(uploading || downloading || isRecording) && (
         <View style={chatStyles.statusOverlay}>
           <Text style={chatStyles.statusText}>
-            {uploading ? 'Uploading file...' : 'Downloading file...'}
+            {uploading ? 'Uploading...' : (isRecording ? 'Recording voice message...' : 'Downloading file...')}
           </Text>
         </View>
       )}
@@ -795,6 +836,61 @@ const styles = (theme) => StyleSheet.create({
     color: theme.primaryColor || '#6dcff6',
     fontWeight: '600',
     fontSize: 13,
+  },
+  micButton: {
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  recordingToolbar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: theme.cardBackground || '#fff',
+    paddingHorizontal: 15,
+    paddingVertical: 10,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(0,0,0,0.05)',
+  },
+  recordingActionBtn: {
+    padding: 8,
+  },
+  recordingInfo: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginHorizontal: 10,
+  },
+  recordingTimer: {
+    fontSize: 14,
+    color: '#333',
+    width: 45,
+  },
+  waveformContainer: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+    height: 30,
+    marginLeft: 5,
+    overflow: 'hidden',
+  },
+  waveformPoint: {
+    width: 2,
+    marginHorizontal: 1,
+    borderRadius: 1,
+  },
+  recordingSendBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: theme.primaryColor || '#6dcff6',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: 10,
+  },
+  audioBubbleContainer: {
+    paddingHorizontal: 5,
+    paddingTop: 5,
+    minWidth: 200,
   },
   safeArea: {
     flex: 1,
@@ -996,8 +1092,6 @@ const styles = (theme) => StyleSheet.create({
   sendContainer: {
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 4,
-    marginBottom: 8,
   },
   sendingContainer: {
     justifyContent: 'center',
