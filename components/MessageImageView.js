@@ -4,6 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
+import ImageViewing from "react-native-image-viewing";
 
 const MessageImageView = ({ currentMessage, renderFooter, isMine, config, onLongPress, onPress, isSelectionMode }) => {
     const [imgError, setImgError] = useState(false);
@@ -38,46 +39,42 @@ const MessageImageView = ({ currentMessage, renderFooter, isMine, config, onLong
     const showDownloadButton = config?.features?.imageDownload && !isMine;
 
     return (
-        <View style={{ padding: 4 }}>
-             <TouchableOpacity 
-                onLongPress={onLongPress}
-                onPress={() => {
-                    if (isSelectionMode) {
-                        onPress();
-                    } else {
-                        setModalVisible(true);
-                    }
-                }}
-             >
+        <TouchableOpacity 
+            style={{ padding: 4, width: '100%' }}
+            activeOpacity={0.9}
+            onLongPress={() => onLongPress && onLongPress(currentMessage)}
+            onPress={() => {
+                if (isSelectionMode) {
+                    if (onPress) onPress(currentMessage);
+                } else {
+                    setModalVisible(true);
+                }
+            }}
+        >
+             <View>
                 <Image 
                     source={{ uri: currentMessage.image }} 
                     style={{ width: 220, height: 160, borderRadius: 8, resizeMode: 'cover', marginBottom: 4 }} 
                     onError={() => setImgError(true)}
                 />
-             </TouchableOpacity>
+             </View>
 
-             <Modal 
-                visible={modalVisible} 
-                transparent={true} 
-                animationType="fade"
+             <ImageViewing
+                images={[{ uri: currentMessage.image }]}
+                imageIndex={0}
+                visible={modalVisible}
                 onRequestClose={() => setModalVisible(false)}
-             >
-                <SafeAreaView style={{ flex: 1, backgroundColor: 'black' }}>
-                    <StatusBar barStyle="light-content" backgroundColor="black" />
-                    <TouchableOpacity 
-                        onPress={() => setModalVisible(false)} 
-                        style={{ position: 'absolute', top: 40, right: 10, zIndex: 10, padding: 10 }}
-                    >
-                        <Ionicons name="close" size={30} color="white" />
-                    </TouchableOpacity>
-                    <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-                        <Image 
-                            source={{ uri: currentMessage.image }} 
-                            style={{ width: '100%', height: '100%', resizeMode: 'contain' }}
-                        />
+                HeaderComponent={() => (
+                    <View style={{ position: 'absolute', top: 40, right: 10, zIndex: 1 }}>
+                        <TouchableOpacity 
+                            onPress={() => setModalVisible(false)} 
+                            style={{ padding: 10 }}
+                        >
+                            <Ionicons name="close" size={30} color="white" />
+                        </TouchableOpacity>
                     </View>
-                </SafeAreaView>
-             </Modal>
+                )}
+             />
 
             {/* Download Button Overlay */}
             {showDownloadButton && (
@@ -99,8 +96,10 @@ const MessageImageView = ({ currentMessage, renderFooter, isMine, config, onLong
             </TouchableOpacity>
             )}
 
-            {renderFooter()}
-        </View>
+            <View pointerEvents="none">
+                {renderFooter()}
+            </View>
+        </TouchableOpacity>
     );
 };
 

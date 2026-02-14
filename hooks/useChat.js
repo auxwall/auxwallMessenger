@@ -14,6 +14,11 @@ export default function useChat({ feathersClient, conversationId, targetUser, cu
   const PAGE_LIMIT = 50;
   const mounted = useRef(true);
 
+  // Sync resolvedId when prop changes
+  useEffect(() => {
+    setResolvedId(conversationId);
+  }, [conversationId]);
+
   const markAsRead = useCallback(async (idToMark) => {
     try {
       const activeId = idToMark || resolvedId;
@@ -146,6 +151,21 @@ export default function useChat({ feathersClient, conversationId, targetUser, cu
       throw error;
     }
   }, [feathersClient, companyId, resolvedId]);
+  
+  const deleteMessage = useCallback(async (messageId) => {
+    if (!resolvedId) return;
+    try {
+      await feathersClient.service('api/messages').patch(messageId, { type: 'deleted' }, { 
+          query: { 
+              companyId,
+              conversationId: resolvedId 
+          } 
+      });
+    } catch (error) {
+      console.log('Failed to delete message:', error);
+      throw error;
+    }
+  }, [feathersClient, companyId, resolvedId]);
 
   useEffect(() => {
     mounted.current = true;
@@ -211,11 +231,23 @@ export default function useChat({ feathersClient, conversationId, targetUser, cu
     };
 
     const onMessagePatched = (updated) => {
-      if (updated.conversationId == resolvedId) {
+      if (String(updated.conversationId) === String(resolvedId)) {
         setMessages(prev =>
           prev.map(m => {
             if (String(m._id) === String(updated.id)) {
-              return { ...m, received: !!updated.isRead };
+              // We need to merge the raw feathers data, not the GiftedChat object.
+              // GiftedChat objects have different structures (_id, text, etc).
+              // Since we don't store the raw feathers msg, we reconstruct it carefully.
+              const mergedRaw = {
+                id: updated.id,
+                conversationId: updated.conversationId,
+                senderId: updated.senderId || m.user?._id,
+                content: updated.content !== undefined ? updated.content : (m.messageType === 'text' ? m.text : m.content),
+                type: updated.type || m.messageType,
+                isRead: updated.isRead !== undefined ? updated.isRead : m.received,
+                createdAt: updated.createdAt || m.createdAt,
+              };
+              return mapMessageToGiftedChat(mergedRaw, currentUserId, apiBaseUrl);
             }
             return m;
           })
@@ -241,7 +273,7 @@ export default function useChat({ feathersClient, conversationId, targetUser, cu
       messagesService.removeListener('patched', onMessagePatched);
       messagesService.removeListener('removed', onMessageRemoved);
     };
-  }, [resolvedId, currentUserId, feathersClient, fetchMessages, markAsRead, apiBaseUrl]);
+  }, [resolvedId, currentUserId, companyId, feathersClient, fetchMessages, markAsRead, apiBaseUrl, conversationId]);
 
   const loadEarlier = useCallback(async () => {
     if (!resolvedId || !hasMore || loadingEarlier || loading) return;
@@ -287,6 +319,7 @@ export default function useChat({ feathersClient, conversationId, targetUser, cu
     conversationType,
     fetchMessages,
     sendMessage,
+    deleteMessage,
     markAsRead,
     loadEarlier,
     hasMore,

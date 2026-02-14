@@ -25,12 +25,13 @@ const ChatScreen = ({ config = defaultConfig, feathersClient, conversationId, ta
   const [forwardModalVisible, setForwardModalVisible] = useState(false);
   const [docModalVisible, setDocModalVisible] = useState(false);
   const [docData, setDocData] = useState(null);
+  const [actionModalVisible, setActionModalVisible] = useState(false);
   const textInputRef = useRef(null);
   const scheme = useColorScheme();
   const isDark = scheme === 'dark';
 
   // Use custom hooks
-  const { messages, setMessages, loading, error, conversation, conversationType, sendMessage, fetchMessages, loadEarlier, hasMore, loadingEarlier } = useChat({ feathersClient, conversationId, targetUser, currentUserId: currentUser?.id, companyId: currentUser?.companyId, config, apiBaseUrl });
+  const { messages, setMessages, loading, error, conversation, conversationType, sendMessage, deleteMessage, fetchMessages, loadEarlier, hasMore, loadingEarlier } = useChat({ feathersClient, conversationId, targetUser, currentUserId: currentUser?.id, companyId: currentUser?.companyId, config, apiBaseUrl });
 
   const [showGroupInfo, setShowGroupInfo] = useState(false);
   const [groupParticipants, setGroupParticipants] = useState([]);
@@ -150,6 +151,11 @@ const ChatScreen = ({ config = defaultConfig, feathersClient, conversationId, ta
 
   // Handle image upload
   const handlePickImage = async () => {
+    setActionModalVisible(false);
+    // Wait for modal to dismiss on iOS to avoid race condition
+    if (Platform.OS === 'ios') {
+      await new Promise(resolve => setTimeout(resolve, 700));
+    }
     const result = await pickImage();
     if (!result) return;
 
@@ -194,6 +200,11 @@ const ChatScreen = ({ config = defaultConfig, feathersClient, conversationId, ta
 
   // Handle camera photo
   const handleTakePhoto = async () => {
+    setActionModalVisible(false);
+    // Wait for modal to dismiss on iOS
+    if (Platform.OS === 'ios') {
+      await new Promise(resolve => setTimeout(resolve, 700));
+    }
     const result = await takePhoto();
     if (!result) return;
 
@@ -236,6 +247,11 @@ const ChatScreen = ({ config = defaultConfig, feathersClient, conversationId, ta
 
   // Handle document upload
   const handlePickDocument = async () => {
+    setActionModalVisible(false);
+    // Wait for modal to dismiss on iOS
+    if (Platform.OS === 'ios') {
+      await new Promise(resolve => setTimeout(resolve, 700));
+    }
     const result = await pickDocument();
     if (!result) return;
 
@@ -365,11 +381,13 @@ const ChatScreen = ({ config = defaultConfig, feathersClient, conversationId, ta
   
   // Selection Mode Handlers
   const handleLongPressMessage = (context, message) => {
+    if (message.messageType === 'deleted') return;
     if (selectedMessages.length > 0) return; // Already in selection mode
     setSelectedMessages([message]);
   };
 
   const handlePressMessage = (context, message) => {
+    if (message.messageType === 'deleted') return;
     if (selectedMessages.length > 0) {
       // Toggle selection
       const exists = selectedMessages.find(m => m._id === message._id);
@@ -379,6 +397,39 @@ const ChatScreen = ({ config = defaultConfig, feathersClient, conversationId, ta
         setSelectedMessages(prev => [...prev, message]);
       }
     }
+  };
+
+  const handleDelete = async () => {
+    if (selectedMessages.length === 0) return;
+    
+    // Filter only my messages
+    const myMessages = selectedMessages.filter(m => String(m.user._id) === String(currentUser?.id));
+    
+    if (myMessages.length === 0) {
+        Alert.alert("Delete Message", "You can only delete your own messages.");
+        return;
+    }
+    
+    Alert.alert(
+        "Delete Message",
+        `Are you sure you want to delete ${myMessages.length} message(s)?`,
+        [
+            { text: "Cancel", style: "cancel" },
+            { 
+                text: "Delete", 
+                style: "destructive",
+                onPress: async () => {
+                    try {
+                        const promises = myMessages.map(m => deleteMessage(m._id));
+                        await Promise.all(promises);
+                        setSelectedMessages([]);
+                    } catch (err) {
+                        Alert.alert("Error", "Failed to delete messages");
+                    }
+                }
+            }
+        ]
+    );
   };
 
   const chatStyles = styles(config.theme);
@@ -391,14 +442,7 @@ const ChatScreen = ({ config = defaultConfig, feathersClient, conversationId, ta
       <Actions
         {...props}
         containerStyle={chatStyles.sendContainer}
-        onPressActionButton={() => {
-          Alert.alert('Send Attachment', 'Choose an option', [
-            { text: 'Take Photo', onPress: handleTakePhoto },
-            { text: 'Photo/Video Library', onPress: handlePickImage },
-            { text: 'Document', onPress: handlePickDocument },
-            { text: 'Cancel', style: 'cancel' },
-          ]);
-        }}
+        onPressActionButton={() => setActionModalVisible(true)}
         icon={() => (
           <Ionicons
             name="attach"
@@ -482,7 +526,15 @@ const ChatScreen = ({ config = defaultConfig, feathersClient, conversationId, ta
           renderTime={() => null}
           renderTicks={() => null}
           renderMessageAudio={(audioProps) => (
-            <View style={chatStyles.audioBubbleContainer}>
+            <TouchableOpacity 
+                style={chatStyles.audioBubbleContainer}
+                onLongPress={() => handleLongPressMessage(null, msg)}
+                onPress={() => {
+                    if (selectedMessages.length > 0) {
+                        handlePressMessage(null, msg);
+                    }
+                }}
+            >
               <AudioPlayer 
                 url={audioProps.currentMessage.audio} 
                 isMine={isMine} 
@@ -490,8 +542,10 @@ const ChatScreen = ({ config = defaultConfig, feathersClient, conversationId, ta
                 onLongPress={() => handleLongPressMessage(null, msg)}
                 onPress={selectedMessages.length > 0 ? () => handlePressMessage(null, msg) : undefined}
               />
-              {renderFooter()}
-            </View>
+              <View pointerEvents="none">
+                {renderFooter()}
+              </View>
+            </TouchableOpacity>
           )}
           currentMessage={{
              ...props.currentMessage,
@@ -511,7 +565,15 @@ const ChatScreen = ({ config = defaultConfig, feathersClient, conversationId, ta
           renderMessageText={(textProps) => {
             if (isDoc) {
               return (
-                <View style={chatStyles.docContainer}>
+                <TouchableOpacity 
+                    style={chatStyles.docContainer}
+                    onLongPress={() => handleLongPressMessage(null, msg)}
+                    onPress={() => {
+                      if (selectedMessages.length > 0) {
+                        handlePressMessage(null, msg);
+                      }
+                    }}
+                >
                   <TouchableOpacity
                     onLongPress={() => handleLongPressMessage(null, msg)}
                     onPress={() => {
@@ -533,8 +595,10 @@ const ChatScreen = ({ config = defaultConfig, feathersClient, conversationId, ta
                       {textProps.currentMessage.text.replace('📄 ', '')}
                     </Text>
                   </TouchableOpacity>
-                  {renderFooter()}
-                </View>
+                  <View pointerEvents="none">
+                    {renderFooter()}
+                  </View>
+                </TouchableOpacity>
               );
             }
 
@@ -557,8 +621,8 @@ const ChatScreen = ({ config = defaultConfig, feathersClient, conversationId, ta
                             }
                         }}
                         textStyle={{
-                            right: chatStyles.messageTextRight,
-                            left: chatStyles.messageTextLeft,
+                            right: textProps.currentMessage.messageType === 'deleted' ? { fontStyle: 'italic', color: '#ccc' } : chatStyles.messageTextRight,
+                            left: textProps.currentMessage.messageType === 'deleted' ? { fontStyle: 'italic', color: '#999' } : chatStyles.messageTextLeft,
                         }}
                     />
                     <View style={chatStyles.textFooter}>
@@ -685,6 +749,64 @@ const ChatScreen = ({ config = defaultConfig, feathersClient, conversationId, ta
       navigation.goBack();
     }
   };
+
+  const renderActionModal = () => (
+    <Modal
+      visible={actionModalVisible}
+      transparent={true}
+      animationType="fade"
+      onRequestClose={() => setActionModalVisible(false)}
+    >
+      <Pressable 
+        style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }} 
+        onPress={() => setActionModalVisible(false)}
+      >
+        <View style={{ backgroundColor: isDark ? '#1e1e1e' : 'white', borderTopLeftRadius: 25, borderTopRightRadius: 25, padding: 20, paddingBottom: 20, elevation: 10, shadowColor: '#000', shadowOffset: { width: 0, height: -10 }, shadowOpacity: 0.1, shadowRadius: 10 }}>
+          <View style={{ width: 40, height: 5, backgroundColor: isDark ? '#3a3a3a' : '#E0E0E0', borderRadius: 2.5, alignSelf: 'center', marginBottom: 10 }} />
+          <Text style={{ fontSize: 18, fontWeight: '700', marginBottom: 10, color: isDark ? '#fff' : '#333', textAlign: 'center' }}>
+            Send Attachment
+          </Text>
+
+          <TouchableOpacity 
+            style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: isDark ? '#2a2a2a' : '#F0F0F0' }}
+            onPress={handleTakePhoto}
+          >
+            <View style={{ width: 30, height: 30, borderRadius: 22.5, backgroundColor: isDark ? '#2a2a2a' : '#F0F7FF', alignItems: 'center', justifyContent: 'center' }}>
+              <Ionicons name="camera" size={20} color={config.theme?.primaryColor || "#007AFF"} />
+            </View>
+            <Text style={{ fontSize: 14, color: isDark ? '#eee' : '#333', marginLeft: 15, fontWeight: '500' }}>Take Photo</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity 
+            style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 18, borderBottomWidth: 1, borderBottomColor: isDark ? '#2a2a2a' : '#F0F0F0' }}
+            onPress={handlePickImage}
+          >
+            <View style={{ width: 30, height: 30, borderRadius: 22.5, backgroundColor: isDark ? '#2a2a2a' : '#F7F0FF', alignItems: 'center', justifyContent: 'center' }}>
+              <Ionicons name="images" size={20} color="#A020F0" />
+            </View>
+            <Text style={{ fontSize: 14, color: isDark ? '#eee' : '#333', marginLeft: 15, fontWeight: '500' }}>Photo & Video Library</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity 
+            style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 18 }}
+            onPress={handlePickDocument}
+          >
+            <View style={{ width: 30, height: 30, borderRadius: 22.5, backgroundColor: isDark ? '#2a2a2a' : '#F0FFF4', alignItems: 'center', justifyContent: 'center' }}>
+              <Ionicons name="document-text" size={20} color="#34C759" />
+            </View>
+            <Text style={{ fontSize: 14, color: isDark ? '#eee' : '#333', marginLeft: 15, fontWeight: '500' }}>Document</Text>
+          </TouchableOpacity>
+          
+          <TouchableOpacity 
+             style={{ paddingVertical: 15, alignItems: 'center', backgroundColor: isDark ? '#2a2a2a' : '#F9F9F9', borderRadius: 15 }}
+             onPress={() => setActionModalVisible(false)}
+          >
+            <Text style={{ color: '#FF3B30', fontSize: 14, fontWeight: '600' }}>Cancel</Text>
+          </TouchableOpacity>
+        </View>
+      </Pressable>
+    </Modal>
+  );
 
   const renderDocumentModal = () => (
     <Modal
@@ -897,9 +1019,19 @@ const ChatScreen = ({ config = defaultConfig, feathersClient, conversationId, ta
                     {selectedMessages.length} Selected
                 </Text>
             </View>
-            <TouchableOpacity onPress={() => setForwardModalVisible(true)} style={{ padding: 5 }}>
-                <Ionicons name="arrow-redo" size={24} color={config.theme?.headerTextColor || '#303030'} />
-            </TouchableOpacity>
+            <View style={{ flexDirection: 'row' }}>
+                {selectedMessages.every(m => 
+                    String(m.user._id) === String(currentUser?.id) && 
+                    moment().diff(moment(m.createdAt), 'minutes') < 5
+                ) && (
+                    <TouchableOpacity onPress={handleDelete} style={{ padding: 5, marginRight: 10 }}>
+                        <Ionicons name="trash-outline" size={24} color={config.theme?.headerTextColor || '#303030'} />
+                    </TouchableOpacity>
+                )}
+                <TouchableOpacity onPress={() => setForwardModalVisible(true)} style={{ padding: 5 }}>
+                    <Ionicons name="arrow-redo" size={24} color={config.theme?.headerTextColor || '#303030'} />
+                </TouchableOpacity>
+            </View>
         </View>
       ) : (
       <View style={chatStyles.header}>
@@ -999,6 +1131,7 @@ const ChatScreen = ({ config = defaultConfig, feathersClient, conversationId, ta
           }}
         />
       </KeyboardAvoidingView>
+      {renderActionModal()}
       {renderGroupInfoModal()}
       {renderDocumentModal()}
 

@@ -30,7 +30,7 @@ export const mapMessageToGiftedChat = (msg, currentUserId, apiBaseUrl) => {
 
   const giftedMsg = {
     _id: msg.id || Math.random().toString(),
-    text: msg.type === 'text' ? (msg.content ? msg.content.replace(':::fw:::', '') : '') : '',
+    text: (msg.type === 'text' || msg.type === 'deleted') ? (msg.content ? msg.content.replace(':::fw:::', '') : '') : '',
     createdAt: msg.createdAt,
     user: {
       _id: String(msg.senderId),

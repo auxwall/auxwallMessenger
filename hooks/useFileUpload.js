@@ -12,6 +12,7 @@ export default function useFileUpload({ config, apiBaseUrl, accessToken }) {
   const [isRecording, setIsRecording] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const [recordingStatus, setRecordingStatus] = useState(null);
+  const isPicking = useRef(false);
 
   useEffect(() => {
     return () => {
@@ -112,23 +113,29 @@ export default function useFileUpload({ config, apiBaseUrl, accessToken }) {
   }, [config, apiBaseUrl, accessToken]);
 
   const pickImage = useCallback(async () => {
+    if (isPicking.current) return null;
+    isPicking.current = true;
     try {
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (status !== 'granted') {
         Alert.alert('Permission Denied', 'Sorry, we need camera roll permissions to make this work!');
+        isPicking.current = false;
         return null;
       }
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        mediaTypes: ['images'],
         allowsEditing: false,
         quality: 0.8,
       });
 
       if (!result.canceled && result.assets && result.assets.length > 0) {
+        isPicking.current = false;
         return result.assets[0];
       }
+      isPicking.current = false;
       return null;
     } catch (error) {
+      isPicking.current = false;
       console.log('Image picker error:', error);
       Alert.alert('Error', 'Failed to pick image');
       return null;
@@ -136,24 +143,30 @@ export default function useFileUpload({ config, apiBaseUrl, accessToken }) {
   }, []);
 
   const takePhoto = useCallback(async () => {
+    if (isPicking.current) return null;
+    isPicking.current = true;
     try {
       const { status } = await ImagePicker.requestCameraPermissionsAsync();
       if (status !== 'granted') {
         Alert.alert('Permission Denied', 'Camera access is required to take photos');
+        isPicking.current = false;
         return null;
       }
 
       const result = await ImagePicker.launchCameraAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        mediaTypes: ['images'],
         allowsEditing: false,
         quality: 0.8,
       });
 
       if (!result.canceled && result.assets && result.assets.length > 0) {
+        isPicking.current = false;
         return result.assets[0];
       }
+      isPicking.current = false;
       return null;
     } catch (error) {
+      isPicking.current = false;
       console.log('Camera error:', error);
       Alert.alert('Error', 'Failed to take photo');
       return null;
@@ -161,6 +174,8 @@ export default function useFileUpload({ config, apiBaseUrl, accessToken }) {
   }, []);
 
   const pickDocument = useCallback(async () => {
+    if (isPicking.current) return null;
+    isPicking.current = true;
     try {
       const result = await DocumentPicker.getDocumentAsync({
         type: config?.upload?.allowedDocumentTypes || '*/*',
@@ -168,10 +183,13 @@ export default function useFileUpload({ config, apiBaseUrl, accessToken }) {
       });
 
       if (!result.canceled && result.assets && result.assets.length > 0) {
+        isPicking.current = false;
         return result.assets[0];
       }
+      isPicking.current = false;
       return null;
     } catch (error) {
+      isPicking.current = false;
       console.log('Document picker error:', error);
       Alert.alert('Error', 'Failed to pick document');
       return null;
