@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { mapMessageToGiftedChat } from '../utils/chatHelpers';
 
-export default function useChat({ feathersClient, conversationId, targetUser, currentUserId, companyId, config }) {
+export default function useChat({ feathersClient, conversationId, targetUser, currentUserId, companyId, config, apiBaseUrl }) {
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -112,7 +112,7 @@ export default function useChat({ feathersClient, conversationId, targetUser, cu
       if (mounted.current) {
         setHasMore(feathersMessages.length >= PAGE_LIMIT);
       }
-      const historicalGifted = feathersMessages.map(msg => mapMessageToGiftedChat(msg, currentUserId));
+      const historicalGifted = feathersMessages.map(msg => mapMessageToGiftedChat(msg, currentUserId, apiBaseUrl));
       
       if (mounted.current) {
         setMessages(prev => {
@@ -132,7 +132,7 @@ export default function useChat({ feathersClient, conversationId, targetUser, cu
         setLoading(false);
       }
     }
-  }, [resolvedId, targetUser, currentUserId, companyId, feathersClient, markAsRead]);
+  }, [resolvedId, targetUser, currentUserId, companyId, feathersClient, markAsRead, apiBaseUrl]);
 
   const sendMessage = useCallback(async (messageData) => {
     try {
@@ -195,12 +195,12 @@ export default function useChat({ feathersClient, conversationId, targetUser, cu
             
             if (optimisticIdx !== -1) {
               const newMessages = [...prev];
-              newMessages[optimisticIdx] = mapMessageToGiftedChat(message, currentUserId);
+              newMessages[optimisticIdx] = mapMessageToGiftedChat(message, currentUserId, apiBaseUrl);
               return newMessages;
             }
           }
           
-          const mapped = mapMessageToGiftedChat(message, currentUserId);
+          const mapped = mapMessageToGiftedChat(message, currentUserId, apiBaseUrl);
           return [mapped, ...prev];
         });
 
@@ -241,7 +241,7 @@ export default function useChat({ feathersClient, conversationId, targetUser, cu
       messagesService.removeListener('patched', onMessagePatched);
       messagesService.removeListener('removed', onMessageRemoved);
     };
-  }, [resolvedId, currentUserId, feathersClient, fetchMessages, markAsRead]);
+  }, [resolvedId, currentUserId, feathersClient, fetchMessages, markAsRead, apiBaseUrl]);
 
   const loadEarlier = useCallback(async () => {
     if (!resolvedId || !hasMore || loadingEarlier || loading) return;
@@ -263,7 +263,7 @@ export default function useChat({ feathersClient, conversationId, targetUser, cu
       if (mounted.current) {
         if (data.length < PAGE_LIMIT) setHasMore(false);
 
-        const historicalGifted = data.map(msg => mapMessageToGiftedChat(msg, currentUserId));
+        const historicalGifted = data.map(msg => mapMessageToGiftedChat(msg, currentUserId, apiBaseUrl));
         setMessages(prev => {
           const existingIds = new Set(prev.map(m => String(m._id)));
           const newHistory = historicalGifted.filter(m => !existingIds.has(String(m._id)));
@@ -275,7 +275,7 @@ export default function useChat({ feathersClient, conversationId, targetUser, cu
     } finally {
       if (mounted.current) setLoadingEarlier(false);
     }
-  }, [resolvedId, hasMore, loadingEarlier, loading, messages, companyId, currentUserId, feathersClient, PAGE_LIMIT]);
+  }, [resolvedId, hasMore, loadingEarlier, loading, messages, companyId, currentUserId, feathersClient, PAGE_LIMIT, apiBaseUrl]);
 
   return {
     messages,

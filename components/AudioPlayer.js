@@ -6,7 +6,7 @@ import moment from 'moment';
 
 import { stopCurrent, getCurrent, setCurrent } from '../utils/audioManager';
 
-const AudioPlayer = ({ url, isMine, theme = {} }) => {
+const AudioPlayer = ({ url, isMine, theme = {}, onLongPress, onPress }) => {
   const [sound, setSound] = useState(null);
   const soundRef = useRef(null);
 
@@ -119,40 +119,52 @@ const AudioPlayer = ({ url, isMine, theme = {} }) => {
   const progress = duration > 0 ? (position / duration) * 100 : 0;
 
   return (
-    <View style={[styles.container, isMine ? styles.containerMine : styles.containerOther]}>
-      <TouchableOpacity onPress={playSound} style={styles.playButton} disabled={loading}>
-        {loading ? (
-          <ActivityIndicator size="small" color={isMine ? '#fff' : (theme.primaryColor || '#6dcff6')} />
-        ) : (
-          <Ionicons
-            name={isPlaying ? 'pause' : 'play'}
-            size={24}
-            color={isMine ? '#fff' : (theme.primaryColor || '#6dcff6')}
-          />
-        )}
-      </TouchableOpacity>
-
-      <View style={styles.contentContainer}>
-        <View style={styles.progressBarBackground}>
-          <View
-            style={[
-              styles.progressBarForeground,
-              { width: `${progress}%`, backgroundColor: isMine ? '#fff' : (theme.primaryColor || '#6dcff6') },
-            ]}
-          />
-        </View>
-        <View style={styles.timeContainer}>
-          <Text style={[styles.timeText, isMine ? styles.timeTextMine : styles.timeTextOther]}>
-            {duration > 0 ? moment.utc(position).format('m:ss') : 'Voice Message'}
-          </Text>
-          {duration > 0 && (
-            <Text style={[styles.timeText, isMine ? styles.timeTextMine : styles.timeTextOther]}>
-              {moment.utc(duration).format('m:ss')}
-            </Text>
+    <TouchableOpacity 
+      onLongPress={onLongPress}
+      onPress={() => {
+          if (onPress) {
+              onPress();
+          } else {
+              playSound();
+          }
+      }}
+      activeOpacity={0.9}
+    >
+      <View style={[styles.container, isMine ? styles.containerMine : styles.containerOther]}>
+        <View style={styles.playButton}>
+          {loading ? (
+            <ActivityIndicator size="small" color={isMine ? '#fff' : (theme.primaryColor || '#6dcff6')} />
+          ) : (
+            <Ionicons
+              name={isPlaying ? 'pause' : 'play'}
+              size={24}
+              color={isMine ? '#fff' : (theme.primaryColor || '#6dcff6')}
+            />
           )}
         </View>
+
+        <View style={styles.contentContainer}>
+          <View style={styles.progressBarBackground}>
+            <View
+              style={[
+                styles.progressBarForeground,
+                { width: `${progress}%`, backgroundColor: isMine ? '#fff' : (theme.primaryColor || '#6dcff6') },
+              ]}
+            />
+          </View>
+          <View style={styles.timeContainer}>
+            <Text style={[styles.timeText, isMine ? styles.timeTextMine : styles.timeTextOther]}>
+              {duration > 0 ? moment.utc(position).format('m:ss') : 'Voice Message'}
+            </Text>
+            {duration > 0 && (
+              <Text style={[styles.timeText, isMine ? styles.timeTextMine : styles.timeTextOther]}>
+                {moment.utc(duration).format('m:ss')}
+              </Text>
+            )}
+          </View>
+        </View>
       </View>
-    </View>
+    </TouchableOpacity>
   );
 };
 

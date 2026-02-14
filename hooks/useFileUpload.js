@@ -66,7 +66,7 @@ export default function useFileUpload({ config, apiBaseUrl, accessToken }) {
       if (metadata.companyId) formData.append('companyId', metadata.companyId);
 
       formData.append('file', {
-        uri: Platform.OS === 'ios' ? finalUri.replace('file://', '') : finalUri,
+        uri: finalUri,
         name: newFileName,
         type: fileType || 'application/octet-stream',
       });

@@ -9,42 +9,55 @@ const ConversationItem = ({ conversation, currentUserId, onPress, theme = {} }) 
   
   const title = formatConversationTitle(conversation, currentUserId);
   const image = getConversationImage(conversation, currentUserId);
-  const lastMsg = conversation.lastMessage;
-  
+
   const renderLastMessage = () => {
-    // 1. Try to use lastMessage object if it exists
-    if (lastMsg) {
-      if (lastMsg.type === 'image') {
-        return (
-          <View style={styles.lastMsgRow}>
-            <Ionicons name="image" size={14} color={theme.lightTextColor || '#8696a0'} style={{ marginRight: 4 }} />
-            <Text style={[styles.lastMsgText, { color: theme.lightTextColor || '#8696a0' }]} numberOfLines={1}>Photo</Text>
-          </View>
-        );
-      }
-      
-      if (lastMsg.type === 'document') {
-        return (
-          <View style={styles.lastMsgRow}>
-            <Ionicons name="document-text" size={14} color={theme.lightTextColor || '#8696a0'} style={{ marginRight: 4 }} />
-            <Text style={[styles.lastMsgText, { color: theme.lightTextColor || '#8696a0' }]} numberOfLines={1}>Document</Text>
-          </View>
-        );
-      }
-      
-      return (
-        <Text style={[styles.lastMsgText, { color: theme.lightTextColor || '#8696a0' }]} numberOfLines={1}>
-          {lastMsg.content || lastMsg.text}
-        </Text>
-      );
-    }
 
     // 2. Fallback to lastMessageText (common in your backend)
-    if (conversation.lastMessageText) {
+    if (conversation?.lastMessageText) {
+      let text = conversation.lastMessageText;
+      const isForwarded = typeof text === 'string' && text.startsWith(':::fw:::');
+      if (isForwarded) {
+        text = text.replace(':::fw:::', '');
+      }
+
+      if (text && typeof text === 'string' && (text.startsWith('http') || text.startsWith('file:') || text.startsWith('Auxwall/'))) {
+        const lower = text.toLowerCase();
+        if (lower.match(/\.(jpg|jpeg|png|gif|webp)(\?.*)?$/)) {
+             return (
+              <View style={styles.lastMsgRow}>
+                {isForwarded && <Ionicons name="arrow-redo" size={14} color={theme.lightTextColor || '#8696a0'} style={{ marginRight: 4 }} />}
+                <Ionicons name="image" size={14} color={theme.lightTextColor || '#8696a0'} style={{ marginRight: 4 }} />
+                <Text style={[styles.lastMsgText, { color: theme.lightTextColor || '#8696a0' }]} numberOfLines={1}>Photo</Text>
+              </View>
+            );
+          }
+           if (lower.match(/\.(pdf|doc|docx|xls|xlsx|ppt|pptx)(\?.*)?$/)) {
+             return (
+              <View style={styles.lastMsgRow}>
+                {isForwarded && <Ionicons name="arrow-redo" size={14} color={theme.lightTextColor || '#8696a0'} style={{ marginRight: 4 }} />}
+                <Ionicons name="document-text" size={14} color={theme.lightTextColor || '#8696a0'} style={{ marginRight: 4 }} />
+                <Text style={[styles.lastMsgText, { color: theme.lightTextColor || '#8696a0' }]} numberOfLines={1}>Document</Text>
+              </View>
+            );
+          }
+           if (lower.match(/\.(m4a|mp3|wav|aac|amr)(\?.*)?$/)) {
+             return (
+              <View style={styles.lastMsgRow}>
+                {isForwarded && <Ionicons name="arrow-redo" size={14} color={theme.lightTextColor || '#8696a0'} style={{ marginRight: 4 }} />}
+                <Ionicons name="mic" size={14} color={theme.lightTextColor || '#8696a0'} style={{ marginRight: 4 }} />
+                <Text style={[styles.lastMsgText, { color: theme.lightTextColor || '#8696a0' }]} numberOfLines={1}>Voice Message</Text>
+              </View>
+            );
+          }
+       }
+
       return (
-        <Text style={[styles.lastMsgText, { color: theme.lightTextColor || '#8696a0' }]} numberOfLines={1}>
-          {conversation.lastMessageText}
-        </Text>
+        <View style={styles.lastMsgRow}>
+          {isForwarded && <Ionicons name="arrow-redo" size={14} color={theme.lightTextColor || '#8696a0'} style={{ marginRight: 4 }} />}
+          <Text style={[styles.lastMsgText, { color: theme.lightTextColor || '#8696a0' }]} numberOfLines={1}>
+            {text || (isForwarded ? 'Forwarded' : '')}
+          </Text>
+        </View>
       );
     }
     

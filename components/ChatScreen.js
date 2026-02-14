@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
-import { View, StyleSheet, ActivityIndicator, Platform, TouchableOpacity, Image, KeyboardAvoidingView, Text, Alert, Modal, ScrollView, useColorScheme } from 'react-native';
+import { View, StyleSheet, ActivityIndicator, Platform, TouchableOpacity, Image, KeyboardAvoidingView, Text, Alert, Modal, ScrollView, useColorScheme, Linking, Pressable } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { GiftedChat, Bubble, Send, InputToolbar, Composer, MessageText, Actions } from 'react-native-gifted-chat';
+import { GiftedChat, Bubble, Send, InputToolbar, Composer, MessageText, Actions, Message } from 'react-native-gifted-chat';
 import { Ionicons } from '@expo/vector-icons';
 import moment from 'moment';
 import * as Sharing from 'expo-sharing';
@@ -9,6 +9,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import * as ScreenCapture from 'expo-screen-capture';
 import MessageImageView from './MessageImageView';
 import AudioPlayer from './AudioPlayer';
+import ForwardTargetModal from './ForwardTargetModal';
 import useChat from '../hooks/useChat';
 import useFileUpload from '../hooks/useFileUpload';
 import { defaultConfig } from '../config/defaultConfig';
@@ -20,12 +21,16 @@ const ChatScreen = ({ config = defaultConfig, feathersClient, conversationId, ta
   
   const [headerImgError, setHeaderImgError] = useState(false);
   const [downloading, setDownloading] = useState(false);
+  const [selectedMessages, setSelectedMessages] = useState([]);
+  const [forwardModalVisible, setForwardModalVisible] = useState(false);
+  const [docModalVisible, setDocModalVisible] = useState(false);
+  const [docData, setDocData] = useState(null);
   const textInputRef = useRef(null);
   const scheme = useColorScheme();
   const isDark = scheme === 'dark';
 
   // Use custom hooks
-  const { messages, setMessages, loading, error, conversation, conversationType, sendMessage, fetchMessages, loadEarlier, hasMore, loadingEarlier } = useChat({ feathersClient, conversationId, targetUser, currentUserId: currentUser?.id, companyId: currentUser?.companyId, config });
+  const { messages, setMessages, loading, error, conversation, conversationType, sendMessage, fetchMessages, loadEarlier, hasMore, loadingEarlier } = useChat({ feathersClient, conversationId, targetUser, currentUserId: currentUser?.id, companyId: currentUser?.companyId, config, apiBaseUrl });
 
   const [showGroupInfo, setShowGroupInfo] = useState(false);
   const [groupParticipants, setGroupParticipants] = useState([]);
@@ -271,7 +276,7 @@ const ChatScreen = ({ config = defaultConfig, feathersClient, conversationId, ta
     }
   };
 
-  // Handle document press (download and share)
+  // Handle document press (download and share/save/open)
   const handleDocumentPress = async (url, name) => {
     if (!config?.features?.documentSharing) return;
 
@@ -282,17 +287,23 @@ const ChatScreen = ({ config = defaultConfig, feathersClient, conversationId, ta
       const fileUri = `${FileSystem.documentDirectory}${safeName}`;
 
       const { uri } = await FileSystem.downloadAsync(url, fileUri);
+      
+      setDownloading(false);
 
-      if (await Sharing.isAvailableAsync()) {
-        await Sharing.shareAsync(uri);
+      if (Platform.OS === 'android') {
+        setDocData({ uri, name: safeName });
+        setDocModalVisible(true);
       } else {
-        Alert.alert('Error', 'Sharing is not available on this device');
+        if (await Sharing.isAvailableAsync()) {
+          await Sharing.shareAsync(uri);
+        } else {
+          Alert.alert('Error', 'Sharing is not available on this device');
+        }
       }
     } catch (error) {
       console.log(error);
-      Alert.alert('Error', 'Failed to open document');
-    } finally {
       setDownloading(false);
+      Alert.alert('Error', 'Failed to open document');
     }
   };
 
@@ -304,13 +315,13 @@ const ChatScreen = ({ config = defaultConfig, feathersClient, conversationId, ta
       companyId: currentUser?.companyId || config?.companyId
     });
     if (uploadResult && uploadResult.message) {
-      const realMessage = uploadResult.message;
-      setMessages((prev) => {
-        if (prev.some(m => String(m._id) === String(realMessage.id))) {
-          return prev;
-        }
-        return GiftedChat.append(prev, [mapMessageToGiftedChat(realMessage, currentUser?.id, apiBaseUrl)]);
-      });
+        const realMessage = uploadResult.message;
+        setMessages((prev) => {
+          if (prev.some(m => String(m._id) === String(realMessage.id))) {
+            return prev;
+          }
+          return GiftedChat.append(prev, [mapMessageToGiftedChat(realMessage, currentUser?.id, apiBaseUrl)]);
+        });
     }
   };
 
@@ -351,6 +362,24 @@ const ChatScreen = ({ config = defaultConfig, feathersClient, conversationId, ta
     },
     [conversationId, currentUser, sendMessage, setMessages]
   );
+  
+  // Selection Mode Handlers
+  const handleLongPressMessage = (context, message) => {
+    if (selectedMessages.length > 0) return; // Already in selection mode
+    setSelectedMessages([message]);
+  };
+
+  const handlePressMessage = (context, message) => {
+    if (selectedMessages.length > 0) {
+      // Toggle selection
+      const exists = selectedMessages.find(m => m._id === message._id);
+      if (exists) {
+        setSelectedMessages(prev => prev.filter(m => m._id !== message._id));
+      } else {
+        setSelectedMessages(prev => [...prev, message]);
+      }
+    }
+  };
 
   const chatStyles = styles(config.theme);
 
@@ -382,14 +411,13 @@ const ChatScreen = ({ config = defaultConfig, feathersClient, conversationId, ta
     );
   };
 
-  // Render message bubble
+    // Render message bubble
   const renderBubble = (props) => {
     const isMine = props.currentMessage.user._id === String(currentUser?.id);
     const msg = props.currentMessage;
     const isDoc = msg.documentUrl;
     const isAudio = msg.audio;
 
-    // Render time + ticks footer
     const renderFooter = () => (
       <View style={chatStyles.footer}>
         <Text style={[chatStyles.footerText, isMine ? chatStyles.footerTextMine : chatStyles.footerTextOther]}>
@@ -412,10 +440,21 @@ const ChatScreen = ({ config = defaultConfig, feathersClient, conversationId, ta
         )}
       </View>
     );
+    
+    let showForwardedLabel = msg.isForwarded;
+
+    const isSelected = selectedMessages.some(m => String(m._id) === String(msg._id));
+    const selectionStyle = isSelected ? { backgroundColor: 'rgba(0, 123, 255, 0.27)' } : {};
 
     return (
-      <View>
-        {/* Show sender name in group chats */}
+      <View style={[selectionStyle, { borderRadius: 15 }]}>
+        {showForwardedLabel && (
+             <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 2, paddingHorizontal: 10, paddingTop: 5 }}>
+                 <Ionicons name="arrow-redo" size={12} color="#666" style={{ marginRight: 4 }} />
+                 <Text style={{ fontSize: 10, color: '#666', fontStyle: 'italic' }}>Forwarded</Text>
+             </View>
+        )}
+        
         {conversationType === 'group' &&
           props.position === 'left' &&
           (!props.previousMessage ||
@@ -426,9 +465,15 @@ const ChatScreen = ({ config = defaultConfig, feathersClient, conversationId, ta
         <Bubble
           {...props}
           renderUsernameOnMessage={false}
+          onLongPress={() => handleLongPressMessage(null, msg)}
+          onPress={() => {
+              if (selectedMessages.length > 0) {
+                  handlePressMessage(null, msg);
+              }
+          }}
           wrapperStyle={{
-            right: chatStyles.bubbleRight,
-            left: chatStyles.bubbleLeft,
+            right: { ...chatStyles.bubbleRight, ...(isSelected ? { backgroundColor: 'transparent' } : {}) },
+            left: { ...chatStyles.bubbleLeft, ...(isSelected ? { backgroundColor: 'transparent' } : {}) },
           }}
           textStyle={{
             right: { color: isDoc ? '#4a90e2' : (config.theme?.myMessageTextColor || 'white') },
@@ -438,23 +483,46 @@ const ChatScreen = ({ config = defaultConfig, feathersClient, conversationId, ta
           renderTicks={() => null}
           renderMessageAudio={(audioProps) => (
             <View style={chatStyles.audioBubbleContainer}>
-              <AudioPlayer url={audioProps.currentMessage.audio} isMine={isMine} theme={config.theme} />
+              <AudioPlayer 
+                url={audioProps.currentMessage.audio} 
+                isMine={isMine} 
+                theme={config.theme} 
+                onLongPress={() => handleLongPressMessage(null, msg)}
+                onPress={selectedMessages.length > 0 ? () => handlePressMessage(null, msg) : undefined}
+              />
               {renderFooter()}
             </View>
           )}
+          currentMessage={{
+             ...props.currentMessage,
+             text: props.currentMessage.text ? props.currentMessage.text.replace(':::fw:::', '') : ''
+          }}
           renderMessageImage={(imageProps) => (
-            <MessageImageView currentMessage={imageProps.currentMessage} renderFooter={renderFooter} isMine={isMine} config={config} />
+            <MessageImageView 
+              currentMessage={imageProps.currentMessage} 
+              renderFooter={renderFooter} 
+              isMine={isMine} 
+              config={config} 
+              onLongPress={() => handleLongPressMessage(null, msg)}
+              onPress={() => handlePressMessage(null, msg)}
+              isSelectionMode={selectedMessages.length > 0}
+            />
           )}
           renderMessageText={(textProps) => {
             if (isDoc) {
               return (
                 <View style={chatStyles.docContainer}>
                   <TouchableOpacity
+                    onLongPress={() => handleLongPressMessage(null, msg)}
                     onPress={() => {
-                      handleDocumentPress(
-                        textProps.currentMessage.documentUrl,
-                        textProps.currentMessage.text.replace('📄 ', '')
-                      );
+                      if (selectedMessages.length > 0) {
+                        handlePressMessage(null, msg);
+                      } else {
+                        handleDocumentPress(
+                          textProps.currentMessage.documentUrl,
+                          textProps.currentMessage.text.replace('📄 ', '')
+                        );
+                      }
                     }}
                     style={chatStyles.docButton}
                   >
@@ -470,40 +538,62 @@ const ChatScreen = ({ config = defaultConfig, feathersClient, conversationId, ta
               );
             }
 
-            // Normal text
             return (
-              <View style={chatStyles.textContainer}>
-                <MessageText
-                  {...textProps}
-                  textStyle={{
-                    right: chatStyles.messageTextRight,
-                    left: chatStyles.messageTextLeft,
-                  }}
-                />
-                <View style={chatStyles.textFooter}>
-                  <Text style={[chatStyles.footerText, isMine ? chatStyles.footerTextMine : chatStyles.footerTextOther]}>
-                    {moment(msg.createdAt).format('hh:mm A')}
-                  </Text>
-                  {isMine && (
-                    <Ionicons
-                      name={
-                        (conversationType === 'group' || conversation?.isGroup || conversation?.type === 'group') 
-                          ? 'checkmark' 
-                          : (msg.pending ? 'checkmark' : 'checkmark-done')
-                      }
-                      size={16}
-                      color={
-                        !(conversationType === 'group' || conversation?.isGroup || conversation?.type === 'group') && msg.received 
-                          ? '#53bdeb' 
-                          : config.theme?.tickColor || config.theme?.myMessageTextColor || config.theme?.textColor || '#303030'
-                      }
+              <TouchableOpacity
+                onLongPress={() => handleLongPressMessage(null, msg)}
+                onPress={() => {
+                  if (selectedMessages.length > 0) {
+                      handlePressMessage(null, msg);
+                  }
+                }}
+              >
+                <View style={chatStyles.textContainer}>
+                    <MessageText
+                        {...textProps}
+                        onLongPress={() => handleLongPressMessage(null, msg)}
+                        onPress={() => {
+                            if (selectedMessages.length > 0) {
+                                handlePressMessage(null, msg);
+                            }
+                        }}
+                        textStyle={{
+                            right: chatStyles.messageTextRight,
+                            left: chatStyles.messageTextLeft,
+                        }}
                     />
-                  )}
+                    <View style={chatStyles.textFooter}>
+                    <Text style={[chatStyles.footerText, isMine ? chatStyles.footerTextMine : chatStyles.footerTextOther]}>
+                        {moment(msg.createdAt).format('hh:mm A')}
+                    </Text>
+                    {isMine && (
+                        <Ionicons
+                        name={
+                            (conversationType === 'group' || conversation?.isGroup || conversation?.type === 'group') 
+                            ? 'checkmark' 
+                            : (msg.pending ? 'checkmark' : 'checkmark-done')
+                        }
+                        size={16}
+                        color={
+                            !(conversationType === 'group' || conversation?.isGroup || conversation?.type === 'group') && msg.received 
+                            ? '#53bdeb' 
+                            : config.theme?.tickColor || config.theme?.myMessageTextColor || config.theme?.textColor || '#303030'
+                        }
+                        />
+                    )}
+                    </View>
                 </View>
-              </View>
+              </TouchableOpacity>
             );
           }}
         />
+      </View>
+    );
+  };
+
+  const renderMessage = (props) => {
+    return (
+      <View style={{ width: '100%', paddingVertical: 2 }}>
+        <Message {...props} />
       </View>
     );
   };
@@ -595,6 +685,87 @@ const ChatScreen = ({ config = defaultConfig, feathersClient, conversationId, ta
       navigation.goBack();
     }
   };
+
+  const renderDocumentModal = () => (
+    <Modal
+      visible={docModalVisible}
+      transparent={true}
+      animationType="fade"
+      onRequestClose={() => setDocModalVisible(false)}
+    >
+      <Pressable 
+        style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }} 
+        onPress={() => setDocModalVisible(false)}
+      >
+        <View style={{ backgroundColor: 'white', borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20, paddingBottom: 40 }}>
+          <View style={{ width: 40, height: 5, backgroundColor: '#E0E0E0', borderRadius: 2.5, alignSelf: 'center', marginBottom: 20 }} />
+          <Text style={{ fontSize: 18, fontWeight: 'bold', marginBottom: 20, color: '#333', textAlign: 'center' }}>
+            {docData?.name || 'Document Options'}
+          </Text>
+
+          <TouchableOpacity 
+            style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 15, borderBottomWidth: 1, borderBottomColor: '#F0F0F0' }}
+            onPress={async () => {
+              if (!docData?.uri) return;
+              if (await Sharing.isAvailableAsync()) {
+                await Sharing.shareAsync(docData.uri);
+              } else {
+                Alert.alert('Error', 'Sharing is not available');
+              }
+              setDocModalVisible(false);
+            }}
+          >
+            <View style={{ width: 40, alignItems: 'center' }}>
+              <Ionicons name="share-social-outline" size={24} color="#007AFF" />
+            </View>
+            <Text style={{ fontSize: 16, color: '#333', marginLeft: 10 }}>Share</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity 
+            style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 15 }}
+            onPress={async () => {
+              if (!docData?.uri) return;
+              try {
+                const permissions = await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync();
+                if (permissions.granted) {
+                  const base64 = await FileSystem.readAsStringAsync(docData.uri, { encoding: FileSystem.EncodingType.Base64 });
+                  
+                  // Guess MIME type
+                  let mimeType = 'application/octet-stream';
+                  const ext = (docData.name || '').split('.').pop().toLowerCase();
+                  if (ext === 'pdf') mimeType = 'application/pdf';
+                  else if (ext === 'doc') mimeType = 'application/msword';
+                  else if (ext === 'docx') mimeType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+                  else if (ext === 'xls') mimeType = 'application/vnd.ms-excel';
+                  else if (ext === 'xlsx') mimeType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+                  
+                  const newUri = await FileSystem.StorageAccessFramework.createFileAsync(permissions.directoryUri, docData.name, mimeType);
+                  await FileSystem.writeAsStringAsync(newUri, base64, { encoding: FileSystem.EncodingType.Base64 });
+                  Alert.alert('Success', 'File saved successfully');
+                }
+              } catch (e) {
+                console.log('Save error:', e);
+                Alert.alert('Error', 'Failed to save file');
+              }
+              setDocModalVisible(false);
+            }}
+          >
+           <View style={{ width: 40, alignItems: 'center' }}>
+              <Ionicons name="download-outline" size={24} color="#007AFF" />
+            </View>
+            <Text style={{ fontSize: 16, color: '#333', marginLeft: 10 }}>Save to Device</Text>
+          </TouchableOpacity>
+          
+          <TouchableOpacity 
+             style={{ marginTop: 20, paddingVertical: 12, alignItems: 'center', backgroundColor: '#F5F5F5', borderRadius: 10 }}
+             onPress={() => setDocModalVisible(false)}
+          >
+            <Text style={{ color: '#FF3B30', fontSize: 16, fontWeight: '600' }}>Cancel</Text>
+          </TouchableOpacity>
+        </View>
+      </Pressable>
+    </Modal>
+  );
 
   const renderGroupInfoModal = () => (
     <Modal
@@ -716,6 +887,21 @@ const ChatScreen = ({ config = defaultConfig, feathersClient, conversationId, ta
   return (
     <SafeAreaView style={chatStyles.safeArea} edges={['top', 'bottom', 'left', 'right']}>
       {/* Header */}
+      {selectedMessages.length > 0 ? (
+        <View style={[chatStyles.header, { backgroundColor: config.theme?.headerColor || 'white', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 15 }]}>
+            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <TouchableOpacity onPress={() => setSelectedMessages([])} style={{ padding: 5 }}>
+                    <Ionicons name="close" size={24} color={config.theme?.headerTextColor || '#303030'} />
+                </TouchableOpacity>
+                <Text style={{ fontSize: 18, fontWeight: 'bold', color: config.theme?.headerTextColor || '#303030', marginLeft: 15 }}>
+                    {selectedMessages.length} Selected
+                </Text>
+            </View>
+            <TouchableOpacity onPress={() => setForwardModalVisible(true)} style={{ padding: 5 }}>
+                <Ionicons name="arrow-redo" size={24} color={config.theme?.headerTextColor || '#303030'} />
+            </TouchableOpacity>
+        </View>
+      ) : (
       <View style={chatStyles.header}>
         <TouchableOpacity style={chatStyles.backButton} onPress={handleBack}>
           <Ionicons name="arrow-back" size={24} color={config.theme?.textColor || '#303030'} />
@@ -748,6 +934,7 @@ const ChatScreen = ({ config = defaultConfig, feathersClient, conversationId, ta
           </View>
         </TouchableOpacity>
       </View>
+      )}
 
       {/* Upload/Download status */}
       {(uploading || downloading || isRecording) && (
@@ -785,6 +972,10 @@ const ChatScreen = ({ config = defaultConfig, feathersClient, conversationId, ta
           messages={messages}
           onSend={(newMsgs) => onSend(newMsgs)}
           user={{ _id: String(currentUser?.id), name: 'You' }}
+          onLongPress={handleLongPressMessage}
+          onPress={handlePressMessage}
+          extraData={selectedMessages.length}
+          renderMessage={renderMessage}
           renderBubble={renderBubble}
           renderSend={renderSend}
           renderInputToolbar={renderInputToolbar}
@@ -809,6 +1000,23 @@ const ChatScreen = ({ config = defaultConfig, feathersClient, conversationId, ta
         />
       </KeyboardAvoidingView>
       {renderGroupInfoModal()}
+      {renderDocumentModal()}
+
+      {/* Forward Modal */}
+      <ForwardTargetModal
+        visible={forwardModalVisible}
+        onClose={() => setForwardModalVisible(false)}
+        feathersClient={feathersClient}
+        currentUser={currentUser}
+        selectedMessages={selectedMessages}
+        config={config}
+        accessToken={accessToken}
+        apiBaseUrl={apiBaseUrl}
+        onForwardComplete={() => {
+            setSelectedMessages([]);
+            setForwardModalVisible(false);
+        }}
+      />
     </SafeAreaView>
   );
 };
@@ -1043,7 +1251,7 @@ const styles = (theme) => StyleSheet.create({
   },
   docContainer: {
     padding: 8,
-    minWidth: 150,
+    minWidth: 250,
   },
   docButton: {
     flexDirection: 'row',

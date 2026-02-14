@@ -1,12 +1,36 @@
 // Chat helper utilities
 
-export const mapMessageToGiftedChat = (msg, currentUserId) => {
+export const mapMessageToGiftedChat = (msg, currentUserId, apiBaseUrl) => {
   const isMine = parseInt(msg.senderId) === parseInt(currentUserId);
   const name = isMine ? 'You' : (msg.senderName || (msg.senderType === 'member' ? 'Member' : 'Staff'));
-  
+
+  const isForwarded = (msg.content && msg.content.startsWith(':::fw:::')) || (msg.text && msg.text.startsWith(':::fw:::'));
+
+  const resolveUrl = (url) => {
+    if (!url) return url;
+    let cleanUrl = typeof url === 'string' ? url.replace(':::fw:::', '') : url;
+    
+    // If it's already an absolute URL, return it
+    if (cleanUrl.startsWith('http')) {
+        return cleanUrl;
+    }
+    
+    // If it's a relative path starting with Auxwall, prepend the base URL
+    if (cleanUrl.startsWith('Auxwall')) {
+      let baseUrl = apiBaseUrl || '';
+
+      if (baseUrl.endsWith('/api')) {
+        baseUrl = baseUrl.slice(0, -4);
+      }
+      return `${baseUrl}/uploads/${cleanUrl}`;
+    }
+    
+    return cleanUrl;
+  };
+
   const giftedMsg = {
     _id: msg.id || Math.random().toString(),
-    text: msg.type === 'text' ? msg.content : '',
+    text: msg.type === 'text' ? (msg.content ? msg.content.replace(':::fw:::', '') : '') : '',
     createdAt: msg.createdAt,
     user: {
       _id: String(msg.senderId),
@@ -16,20 +40,22 @@ export const mapMessageToGiftedChat = (msg, currentUserId) => {
     sent: true,
     received: !!msg.isRead,
     pending: msg.pending || false,
-    messageType: msg.type 
+    messageType: msg.type,
+    isForwarded: isForwarded
   };
 
   if (msg.type === 'image') {
-    giftedMsg.image = msg.content;
+    giftedMsg.image = resolveUrl(msg.content);
   }
   
   if (msg.type === 'document') {
-    giftedMsg.text = `📄 ${msg.content.split('/').pop()}`;
-    giftedMsg.documentUrl = msg.content;
+    const cleanContent = msg.content ? msg.content.replace(':::fw:::', '') : '';
+    giftedMsg.text = `📄 ${cleanContent.split('/').pop()}`;
+    giftedMsg.documentUrl = resolveUrl(msg.content);
   }
   
   if (msg.type === 'audio') {
-    giftedMsg.audio = msg.content;
+    giftedMsg.audio = resolveUrl(msg.content);
   }
 
   return giftedMsg;

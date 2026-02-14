@@ -1,11 +1,13 @@
 import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, Image, Alert } from 'react-native';
+import { View, Text, TouchableOpacity, Image, Alert, Modal, StatusBar } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 
-const MessageImageView = ({ currentMessage, renderFooter, isMine, config }) => {
+const MessageImageView = ({ currentMessage, renderFooter, isMine, config, onLongPress, onPress, isSelectionMode }) => {
     const [imgError, setImgError] = useState(false);
+    const [modalVisible, setModalVisible] = useState(false);
     
     if (imgError) {
         return (
@@ -37,11 +39,46 @@ const MessageImageView = ({ currentMessage, renderFooter, isMine, config }) => {
 
     return (
         <View style={{ padding: 4 }}>
-             <Image 
-                source={{ uri: currentMessage.image }} 
-                style={{ width: 220, height: 160, borderRadius: 8, resizeMode: 'cover', marginBottom: 4 }} 
-                onError={() => setImgError(true)}
-            />
+             <TouchableOpacity 
+                onLongPress={onLongPress}
+                onPress={() => {
+                    if (isSelectionMode) {
+                        onPress();
+                    } else {
+                        setModalVisible(true);
+                    }
+                }}
+             >
+                <Image 
+                    source={{ uri: currentMessage.image }} 
+                    style={{ width: 220, height: 160, borderRadius: 8, resizeMode: 'cover', marginBottom: 4 }} 
+                    onError={() => setImgError(true)}
+                />
+             </TouchableOpacity>
+
+             <Modal 
+                visible={modalVisible} 
+                transparent={true} 
+                animationType="fade"
+                onRequestClose={() => setModalVisible(false)}
+             >
+                <SafeAreaView style={{ flex: 1, backgroundColor: 'black' }}>
+                    <StatusBar barStyle="light-content" backgroundColor="black" />
+                    <TouchableOpacity 
+                        onPress={() => setModalVisible(false)} 
+                        style={{ position: 'absolute', top: 40, right: 10, zIndex: 10, padding: 10 }}
+                    >
+                        <Ionicons name="close" size={30} color="white" />
+                    </TouchableOpacity>
+                    <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+                        <Image 
+                            source={{ uri: currentMessage.image }} 
+                            style={{ width: '100%', height: '100%', resizeMode: 'contain' }}
+                        />
+                    </View>
+                </SafeAreaView>
+             </Modal>
+
             {/* Download Button Overlay */}
             {showDownloadButton && (
             <TouchableOpacity 
