@@ -1,5 +1,6 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { View, StyleSheet, ActivityIndicator, Platform, TouchableOpacity, Image, KeyboardAvoidingView, Text, Alert, Modal, ScrollView, useColorScheme, Linking, Pressable } from 'react-native';
+import Toast from 'react-native-toast-message';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { GiftedChat, Bubble, Send, InputToolbar, Composer, MessageText, Actions, Message } from 'react-native-gifted-chat';
 import { Ionicons } from '@expo/vector-icons';
@@ -7,6 +8,7 @@ import moment from 'moment';
 import * as Sharing from 'expo-sharing';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as ScreenCapture from 'expo-screen-capture';
+import * as Clipboard from 'expo-clipboard';
 import MessageImageView from './MessageImageView';
 import AudioPlayer from './AudioPlayer';
 import ForwardTargetModal from './ForwardTargetModal';
@@ -172,6 +174,7 @@ const ChatScreen = ({ config = defaultConfig, feathersClient, conversationId, ta
       createdAt: new Date(),
       user: { _id: String(currentUser?.id), name: 'You' },
       pending: true,
+      messageType: 'image',
     };
     setMessages((prev) => GiftedChat.append(prev, [tempMsg]));
 
@@ -221,6 +224,7 @@ const ChatScreen = ({ config = defaultConfig, feathersClient, conversationId, ta
       createdAt: new Date(),
       user: { _id: String(currentUser?.id), name: 'You' },
       pending: true,
+      messageType: 'image',
     };
     setMessages((prev) => GiftedChat.append(prev, [tempMsg]));
 
@@ -268,6 +272,7 @@ const ChatScreen = ({ config = defaultConfig, feathersClient, conversationId, ta
       createdAt: new Date(),
       user: { _id: String(currentUser?.id), name: 'You' },
       pending: true,
+      messageType: 'document',
     };
     setMessages((prev) => GiftedChat.append(prev, [tempMsg]));
 
@@ -354,6 +359,7 @@ const ChatScreen = ({ config = defaultConfig, feathersClient, conversationId, ta
         createdAt: new Date(),
         user: { _id: String(currentUser?.id), name: 'You' },
         pending: true,
+        messageType: 'text',
       };
 
       setMessages((prev) => GiftedChat.append(prev, [optimisticMessage]));
@@ -430,6 +436,24 @@ const ChatScreen = ({ config = defaultConfig, feathersClient, conversationId, ta
             }
         ]
     );
+  };
+  const handleCopy = async () => {
+    if (selectedMessages.length === 0) return;
+    
+    // Strictly filter for text messages only
+    const textToCopy = selectedMessages
+        .filter(m => m.messageType === 'text' || (!m.image && !m.audio && !m.documentUrl && m.text && !m.text.startsWith('📄')))
+        .map(m => m.text)
+        .filter(Boolean)
+        .join('\n');
+    
+    if (textToCopy) {
+        await Clipboard.setStringAsync(textToCopy);
+        Toast.show({ type: 'success', text1: 'Copied to clipboard', position: 'bottom', bottomOffset: 80 });
+        setSelectedMessages([]);
+    } else {
+        Toast.show({ type: 'info', text1: 'No text selected', position: 'bottom', bottomOffset: 80 });
+    }
   };
 
   const chatStyles = styles(config.theme);
@@ -1028,6 +1052,9 @@ const ChatScreen = ({ config = defaultConfig, feathersClient, conversationId, ta
                         <Ionicons name="trash-outline" size={24} color={config.theme?.headerTextColor || '#303030'} />
                     </TouchableOpacity>
                 )}
+                <TouchableOpacity onPress={handleCopy} style={{ padding: 5, marginRight: 10 }}>
+                    <Ionicons name="copy-outline" size={24} color={config.theme?.headerTextColor || '#303030'} />
+                </TouchableOpacity>
                 <TouchableOpacity onPress={() => setForwardModalVisible(true)} style={{ padding: 5 }}>
                     <Ionicons name="arrow-redo" size={24} color={config.theme?.headerTextColor || '#303030'} />
                 </TouchableOpacity>
