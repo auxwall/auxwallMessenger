@@ -23,6 +23,7 @@ const ChatScreen = ({ config = defaultConfig, feathersClient, conversationId, ta
   
   const [headerImgError, setHeaderImgError] = useState(false);
   const [downloading, setDownloading] = useState(false);
+  const [downloadingDocUrl, setDownloadingDocUrl] = useState(null);
   const [selectedMessages, setSelectedMessages] = useState([]);
   const [forwardModalVisible, setForwardModalVisible] = useState(false);
   const [docModalVisible, setDocModalVisible] = useState(false);
@@ -83,7 +84,6 @@ const ChatScreen = ({ config = defaultConfig, feathersClient, conversationId, ta
   const { uploading, isRecording, uploadFileToBackend, pickImage, takePhoto, pickDocument, startRecording, stopRecording, pauseRecording, resumeRecording, cancelRecording, isPaused, recordingStatus } = useFileUpload({ config, apiBaseUrl, accessToken, });
 
   const [waveformPoints, setWaveformPoints] = useState([]);
-  
 
   useEffect(() => {
     if (isRecording && !isPaused && recordingStatus?.metering !== undefined) {
@@ -154,7 +154,6 @@ const ChatScreen = ({ config = defaultConfig, feathersClient, conversationId, ta
   // Handle image upload
   const handlePickImage = async () => {
     setActionModalVisible(false);
-    // Wait for modal to dismiss on iOS to avoid race condition
     if (Platform.OS === 'ios') {
       await new Promise(resolve => setTimeout(resolve, 700));
     }
@@ -167,7 +166,6 @@ const ChatScreen = ({ config = defaultConfig, feathersClient, conversationId, ta
       mimeType: result.mimeType || result.type || 'image/jpeg',
     };
 
-    // Optimistic update
     const tempMsg = {
       _id: Math.random().toString(),
       image: result.uri,
@@ -178,7 +176,6 @@ const ChatScreen = ({ config = defaultConfig, feathersClient, conversationId, ta
     };
     setMessages((prev) => GiftedChat.append(prev, [tempMsg]));
 
-    // Upload with metadata - Backend will create the message
     const uploadResult = await uploadFileToBackend(fileData.uri, fileData.name, fileData.mimeType, {
       conversationId: conversationId,
       type: 'image',
@@ -189,11 +186,9 @@ const ChatScreen = ({ config = defaultConfig, feathersClient, conversationId, ta
     if (uploadResult && uploadResult.message) {
       const realMessage = uploadResult.message;
       setMessages((prev) => {
-        // If real-time listener already added it, don't do anything
         if (prev.some(m => String(m._id) === String(realMessage.id))) {
           return prev.filter(m => m._id !== tempMsg._id);
         }
-        // Otherwise replace temp with real message mapped for Gifted Chat
         return prev.map(m => m._id === tempMsg._id ? mapMessageToGiftedChat(realMessage, currentUser?.id, apiBaseUrl) : m);
       });
     } else {
@@ -204,7 +199,6 @@ const ChatScreen = ({ config = defaultConfig, feathersClient, conversationId, ta
   // Handle camera photo
   const handleTakePhoto = async () => {
     setActionModalVisible(false);
-    // Wait for modal to dismiss on iOS
     if (Platform.OS === 'ios') {
       await new Promise(resolve => setTimeout(resolve, 700));
     }
@@ -217,7 +211,6 @@ const ChatScreen = ({ config = defaultConfig, feathersClient, conversationId, ta
       mimeType: result.mimeType || result.type || 'image/jpeg',
     };
 
-    // Optimistic update
     const tempMsg = {
       _id: Math.random().toString(),
       image: result.uri,
@@ -228,7 +221,6 @@ const ChatScreen = ({ config = defaultConfig, feathersClient, conversationId, ta
     };
     setMessages((prev) => GiftedChat.append(prev, [tempMsg]));
 
-    // Upload with metadata
     const uploadResult = await uploadFileToBackend(fileData.uri, fileData.name, fileData.mimeType, {
       conversationId: conversationId,
       type: 'image',
@@ -252,7 +244,6 @@ const ChatScreen = ({ config = defaultConfig, feathersClient, conversationId, ta
   // Handle document upload
   const handlePickDocument = async () => {
     setActionModalVisible(false);
-    // Wait for modal to dismiss on iOS
     if (Platform.OS === 'ios') {
       await new Promise(resolve => setTimeout(resolve, 700));
     }
@@ -265,10 +256,10 @@ const ChatScreen = ({ config = defaultConfig, feathersClient, conversationId, ta
       mimeType: result.mimeType || result.type || 'application/octet-stream',
     };
 
-    // Optimistic update
     const tempMsg = {
       _id: Math.random().toString(),
-      text: `📄 ${result.name}`,
+      text: `📄 ${result.name || result.fileName || 'document'}`,
+      documentUrl: result.uri,
       createdAt: new Date(),
       user: { _id: String(currentUser?.id), name: 'You' },
       pending: true,
@@ -276,7 +267,6 @@ const ChatScreen = ({ config = defaultConfig, feathersClient, conversationId, ta
     };
     setMessages((prev) => GiftedChat.append(prev, [tempMsg]));
 
-    // Upload with metadata
     const uploadResult = await uploadFileToBackend(fileData.uri, fileData.name, fileData.mimeType, {
       conversationId: conversationId,
       type: 'document',
@@ -297,34 +287,226 @@ const ChatScreen = ({ config = defaultConfig, feathersClient, conversationId, ta
     }
   };
 
+  // Helper to determine document badge details (icon, color, background, label)
+  const getDocDetails = (name) => {
+    const ext = (name || '').split('.').pop().toLowerCase();
+    switch (ext) {
+      case 'pdf':
+        return { type: 'PDF', icon: 'document-text', color: '#e02f2f', bg: 'rgba(224, 47, 47, 0.12)' };
+      case 'xls':
+      case 'xlsx':
+      case 'csv':
+        return { type: ext.toUpperCase(), icon: 'stats-chart', color: '#107c41', bg: 'rgba(16, 124, 65, 0.12)' };
+      case 'doc':
+      case 'docx':
+        return { type: ext.toUpperCase(), icon: 'document', color: '#185abd', bg: 'rgba(24, 90, 189, 0.12)' };
+      case 'ppt':
+      case 'pptx':
+        return { type: ext.toUpperCase(), icon: 'easel', color: '#d83b01', bg: 'rgba(216, 59, 1, 0.12)' };
+      case 'zip':
+      case 'rar':
+      case '7z':
+      case 'tar':
+      case 'gz':
+        return { type: 'ZIP', icon: 'archive', color: '#7f6000', bg: 'rgba(127, 96, 0, 0.12)' };
+      case 'txt':
+        return { type: 'TXT', icon: 'document-text-outline', color: '#54656f', bg: 'rgba(84, 101, 111, 0.12)' };
+      default:
+        return { type: ext ? ext.toUpperCase().slice(0, 4) : 'DOC', icon: 'document-outline', color: '#54656f', bg: 'rgba(84, 101, 111, 0.12)' };
+    }
+  };
+
+  // Download via XMLHttpRequest with timeout (bypasses iOS ATS and Android OkHttpClient hangs)
+  const downloadWithXHR = (targetUrl, timeoutMs = 12000) => {
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('GET', targetUrl);
+      xhr.responseType = 'blob';
+      xhr.timeout = timeoutMs;
+
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          resolve(xhr.response);
+        } else {
+          reject(new Error(`Server responded with HTTP ${xhr.status}`));
+        }
+      };
+
+      xhr.onerror = () => reject(new Error('Network request failed'));
+      xhr.ontimeout = () => reject(new Error(`Connection timed out after ${timeoutMs / 1000}s`));
+      xhr.send();
+    });
+  };
+
+  // Convert Blob to Base64 and write directly to FileSystem
+  const saveBlobToFile = (blob, destinationUri) => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = async () => {
+        try {
+          const res = reader.result;
+          const base64Data = typeof res === 'string' ? (res.split(',')[1] || res) : null;
+          if (!base64Data) {
+            throw new Error('Empty base64 data produced from Blob');
+          }
+          await FileSystem.writeAsStringAsync(destinationUri, base64Data, {
+            encoding: FileSystem.EncodingType.Base64,
+          });
+          resolve(destinationUri);
+        } catch (err) {
+          reject(err);
+        }
+      };
+      reader.onerror = () => reject(new Error('FileReader failed'));
+      reader.readAsDataURL(blob);
+    });
+  };
+
+  // Smart document download: tries XHR first, then fetch with timeout, then FileSystem with timeout
+  const downloadDocumentFile = async (targetUrl, destinationUri) => {
+    // Method 1: XMLHttpRequest (reliable on React Native iOS/Android for cleartext HTTP)
+    try {
+      const blob = await downloadWithXHR(encodeURI(targetUrl), 10000);
+      return await saveBlobToFile(blob, destinationUri);
+    } catch (_) {}
+
+    // Method 2: Fetch with 8-second Promise.race timeout
+    try {
+      const fetchPromise = fetch(encodeURI(targetUrl)).then(async (response) => {
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+        return await response.blob();
+      });
+
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Fetch timed out')), 8000)
+      );
+
+      const blob = await Promise.race([fetchPromise, timeoutPromise]);
+      return await saveBlobToFile(blob, destinationUri);
+    } catch (_) {}
+
+    // Method 3: FileSystem.downloadAsync with 8-second timeout
+    try {
+      const fsPromise = FileSystem.downloadAsync(encodeURI(targetUrl), destinationUri);
+      const fsTimeout = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('downloadAsync timed out')), 8000)
+      );
+
+      const res = await Promise.race([fsPromise, fsTimeout]);
+      if (res && res.uri) {
+        return res.uri;
+      }
+    } catch (fsErr) {
+      throw fsErr;
+    }
+
+    throw new Error('All download methods failed for this URL');
+  };
+
   // Handle document press (download and share/save/open)
   const handleDocumentPress = async (url, name) => {
     if (!config?.features?.documentSharing) return;
 
     try {
-      if (!url) return;
+      if (!url) {
+        Alert.alert('Notice', 'Document link is still being processed. Please try again.');
+        return;
+      }
+
+      setDownloadingDocUrl(url);
       setDownloading(true);
+
       const safeName = (name || 'document').replace(/[^a-zA-Z0-9._-]/g, '_');
       const fileUri = `${FileSystem.documentDirectory}${safeName}`;
+      let targetUri = fileUri;
 
-      const { uri } = await FileSystem.downloadAsync(url, fileUri);
-      
-      setDownloading(false);
+      // If already a local file (e.g. freshly sent from this device)
+      if (typeof url === 'string' && (url.startsWith('file://') || url.startsWith('content://'))) {
+        targetUri = url;
+      } else {
+        // Check if file is already cached locally
+        const fileInfo = await FileSystem.getInfoAsync(fileUri);
+
+        if (fileInfo.exists && fileInfo.size > 0) {
+          targetUri = fileUri;
+        } else {
+          let baseUrl = apiBaseUrl || '';
+          if (baseUrl.endsWith('/api')) baseUrl = baseUrl.slice(0, -4);
+          if (baseUrl.endsWith('/')) baseUrl = baseUrl.slice(0, -1);
+
+          const clean = typeof url === 'string' ? url.replace(':::fw:::', '').trim().replace(/\\/g, '/') : '';
+          const candidateUrls = [];
+
+          // Extract the path from any absolute HTTP URL (e.g. from an old port like :8000)
+          let relativePath = clean;
+          if (clean.startsWith('http://') || clean.startsWith('https://')) {
+            const match = clean.match(/^https?:\/\/[^\/]+(\/.*)$/i);
+            if (match && match[1]) {
+              relativePath = match[1];
+            }
+          }
+
+          // Strip leading slashes for consistent path building
+          if (relativePath.startsWith('/')) {
+            relativePath = relativePath.slice(1);
+          }
+
+          // Primary: Target the active baseUrl (matching active server port)
+          if (baseUrl) {
+            candidateUrls.push(`${baseUrl}/${relativePath}`);
+            if (relativePath.startsWith('uploads/')) {
+              candidateUrls.push(`${baseUrl}/${relativePath.replace('uploads/', '')}`);
+            } else {
+              candidateUrls.push(`${baseUrl}/uploads/${relativePath}`);
+            }
+            if (relativePath.includes('Auxwall/')) {
+              candidateUrls.push(`${baseUrl}/uploads/${relativePath.slice(relativePath.indexOf('Auxwall/'))}`);
+            }
+          }
+
+          // Fallback: Also include the original clean URL
+          if (clean.startsWith('http://') || clean.startsWith('https://')) {
+            candidateUrls.push(clean);
+          }
+
+          const uniqueCandidates = [...new Set(candidateUrls)];
+          let downloadedUri = null;
+          let lastError = null;
+
+          for (let i = 0; i < uniqueCandidates.length; i++) {
+            const candUrl = uniqueCandidates[i];
+            try {
+              downloadedUri = await downloadDocumentFile(candUrl, fileUri);
+              if (downloadedUri) break;
+            } catch (err) {
+              lastError = err;
+            }
+          }
+
+          if (!downloadedUri) {
+            throw lastError || new Error('Could not download document from server');
+          }
+          targetUri = downloadedUri;
+        }
+      }
 
       if (Platform.OS === 'android') {
-        setDocData({ uri, name: safeName });
+        setDocData({ uri: targetUri, name: safeName });
         setDocModalVisible(true);
       } else {
         if (await Sharing.isAvailableAsync()) {
-          await Sharing.shareAsync(uri);
+          await Sharing.shareAsync(targetUri);
         } else {
           Alert.alert('Error', 'Sharing is not available on this device');
         }
       }
     } catch (error) {
-      console.log(error);
+      Alert.alert('Download Error', error.message || 'Failed to download or open document');
+    } finally {
+      setDownloadingDocUrl(null);
       setDownloading(false);
-      Alert.alert('Error', 'Failed to open document');
     }
   };
 
@@ -371,11 +553,9 @@ const ChatScreen = ({ config = defaultConfig, feathersClient, conversationId, ta
         senderId: currentUser?.id,
       }).then((realMessage) => {
         setMessages((prev) => {
-          // If real-time listener already added it, don't do anything
           if (prev.some(m => String(m._id) === String(realMessage.id))) {
              return prev.filter(m => m._id !== tempId);
           }
-          // Otherwise replace temp with real
           return prev.map(m => m._id === tempId ? mapMessageToGiftedChat(realMessage, currentUser?.id, apiBaseUrl) : m);
         });
       }).catch((error) => {
@@ -388,14 +568,13 @@ const ChatScreen = ({ config = defaultConfig, feathersClient, conversationId, ta
   // Selection Mode Handlers
   const handleLongPressMessage = (context, message) => {
     if (message.messageType === 'deleted') return;
-    if (selectedMessages.length > 0) return; // Already in selection mode
+    if (selectedMessages.length > 0) return;
     setSelectedMessages([message]);
   };
 
   const handlePressMessage = (context, message) => {
     if (message.messageType === 'deleted') return;
     if (selectedMessages.length > 0) {
-      // Toggle selection
       const exists = selectedMessages.find(m => m._id === message._id);
       if (exists) {
         setSelectedMessages(prev => prev.filter(m => m._id !== message._id));
@@ -408,7 +587,6 @@ const ChatScreen = ({ config = defaultConfig, feathersClient, conversationId, ta
   const handleDelete = async () => {
     if (selectedMessages.length === 0) return;
     
-    // Filter only my messages
     const myMessages = selectedMessages.filter(m => String(m.user._id) === String(currentUser?.id));
     
     if (myMessages.length === 0) {
@@ -437,10 +615,10 @@ const ChatScreen = ({ config = defaultConfig, feathersClient, conversationId, ta
         ]
     );
   };
+
   const handleCopy = async () => {
     if (selectedMessages.length === 0) return;
     
-    // Strictly filter for text messages only
     const textToCopy = selectedMessages
         .filter(m => m.messageType === 'text' || (!m.image && !m.audio && !m.documentUrl && m.text && !m.text.startsWith('📄')))
         .map(m => m.text)
@@ -479,11 +657,11 @@ const ChatScreen = ({ config = defaultConfig, feathersClient, conversationId, ta
     );
   };
 
-    // Render message bubble
+  // Render message bubble
   const renderBubble = (props) => {
     const isMine = props.currentMessage.user._id === String(currentUser?.id);
     const msg = props.currentMessage;
-    const isDoc = msg.documentUrl;
+    const isDoc = !!msg.documentUrl || msg.messageType === 'document' || (typeof msg.text === 'string' && msg.text.startsWith('📄'));
     const isAudio = msg.audio;
 
     const renderFooter = () => (
@@ -544,8 +722,8 @@ const ChatScreen = ({ config = defaultConfig, feathersClient, conversationId, ta
             left: { ...chatStyles.bubbleLeft, ...(isSelected ? { backgroundColor: 'transparent' } : {}) },
           }}
           textStyle={{
-            right: { color: isDoc ? '#4a90e2' : (config.theme?.myMessageTextColor || 'white') },
-            left: { color: isDoc ? '#4a90e2' : (config.theme?.messageTextColor || config.theme?.textColor || '#303030') },
+            right: { color: config.theme?.myMessageTextColor || 'white' },
+            left: { color: config.theme?.messageTextColor || config.theme?.textColor || '#303030' },
           }}
           renderTime={() => null}
           renderTicks={() => null}
@@ -588,38 +766,73 @@ const ChatScreen = ({ config = defaultConfig, feathersClient, conversationId, ta
           )}
           renderMessageText={(textProps) => {
             if (isDoc) {
+              const rawName = (textProps.currentMessage.text || '').replace('📄 ', '') || 'document';
+              const docUrl = textProps.currentMessage.documentUrl || textProps.currentMessage.content || textProps.currentMessage.text?.replace('📄 ', '');
+              const docDetails = getDocDetails(rawName);
+              const isCurrentDownloading = downloadingDocUrl === docUrl || (downloading && downloadingDocUrl === textProps.currentMessage.documentUrl);
+
               return (
                 <TouchableOpacity 
-                    style={chatStyles.docContainer}
-                    onLongPress={() => handleLongPressMessage(null, msg)}
-                    onPress={() => {
-                      if (selectedMessages.length > 0) {
-                        handlePressMessage(null, msg);
-                      }
-                    }}
+                  activeOpacity={0.9}
+                  style={chatStyles.docContainer}
+                  onLongPress={() => handleLongPressMessage(null, msg)}
+                  onPress={() => {
+                    if (selectedMessages.length > 0) {
+                      handlePressMessage(null, msg);
+                    }
+                  }}
                 >
                   <TouchableOpacity
+                    activeOpacity={0.7}
                     onLongPress={() => handleLongPressMessage(null, msg)}
                     onPress={() => {
                       if (selectedMessages.length > 0) {
                         handlePressMessage(null, msg);
                       } else {
-                        handleDocumentPress(
-                          textProps.currentMessage.documentUrl,
-                          textProps.currentMessage.text.replace('📄 ', '')
-                        );
+                        handleDocumentPress(docUrl, rawName);
                       }
                     }}
-                    style={chatStyles.docButton}
+                    style={[
+                      chatStyles.docCard,
+                      isMine ? chatStyles.docCardMine : chatStyles.docCardOther
+                    ]}
                   >
-                    <View style={chatStyles.docIconContainer}>
-                      <Ionicons name="document-text" size={24} color="#4a90e2" />
+                    {/* File icon / type badge */}
+                    <View style={[chatStyles.docBadge, { backgroundColor: docDetails.bg }]}>
+                      <Ionicons name={docDetails.icon} size={20} color={docDetails.color} />
+                      <Text style={[chatStyles.docBadgeText, { color: docDetails.color }]} numberOfLines={1}>
+                        {docDetails.type}
+                      </Text>
                     </View>
-                    <Text style={chatStyles.docText} numberOfLines={2}>
-                      {textProps.currentMessage.text.replace('📄 ', '')}
-                    </Text>
+
+                    {/* File name & subtitle */}
+                    <View style={chatStyles.docInfo}>
+                      <Text 
+                        style={[chatStyles.docTitle, isMine ? chatStyles.docTitleMine : chatStyles.docTitleOther]} 
+                        numberOfLines={2}
+                      >
+                        {rawName}
+                      </Text>
+                      <Text style={[chatStyles.docSubtitle, isMine ? chatStyles.docSubtitleMine : chatStyles.docSubtitleOther]}>
+                        {docDetails.type} • Document
+                      </Text>
+                    </View>
+
+                    {/* Download circular action button */}
+                    <View style={[chatStyles.downloadBtn, isMine ? chatStyles.downloadBtnMine : chatStyles.downloadBtnOther]}>
+                      {isCurrentDownloading ? (
+                        <ActivityIndicator size="small" color={isMine ? '#ffffff' : '#00a884'} />
+                      ) : (
+                        <Ionicons 
+                          name="arrow-down" 
+                          size={18} 
+                          color={isMine ? (config.theme?.myMessageTextColor || '#ffffff') : '#54656f'} 
+                        />
+                      )}
+                    </View>
                   </TouchableOpacity>
-                  <View pointerEvents="none">
+
+                  <View pointerEvents="none" style={chatStyles.docFooterWrapper}>
                     {renderFooter()}
                   </View>
                 </TouchableOpacity>
@@ -876,7 +1089,6 @@ const ChatScreen = ({ config = defaultConfig, feathersClient, conversationId, ta
                 if (permissions.granted) {
                   const base64 = await FileSystem.readAsStringAsync(docData.uri, { encoding: FileSystem.EncodingType.Base64 });
                   
-                  // Guess MIME type
                   let mimeType = 'application/octet-stream';
                   const ext = (docData.name || '').split('.').pop().toLowerCase();
                   if (ext === 'pdf') mimeType = 'application/pdf';
@@ -1410,26 +1622,83 @@ const styles = (theme) => StyleSheet.create({
     color: theme.lightTextColor || '#8696a0',
   },
   docContainer: {
-    padding: 8,
-    minWidth: 250,
+    padding: 4,
+    minWidth: 260,
+    maxWidth: 320,
   },
-  docButton: {
+  docCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 5,
-    marginBottom: 4,
-  },
-  docIconContainer: {
-    marginRight: 8,
-    backgroundColor: 'rgba(74, 144, 226, 0.1)',
     padding: 8,
     borderRadius: 8,
+    marginHorizontal: 2,
+    marginTop: 2,
   },
-  docText: {
-    color: '#4a90e2',
-    textDecorationLine: 'underline',
-    fontSize: 15,
+  docCardMine: {
+    backgroundColor: 'rgba(0, 0, 0, 0.08)',
+  },
+  docCardOther: {
+    backgroundColor: 'rgba(0, 0, 0, 0.04)',
+  },
+  docBadge: {
+    width: 44,
+    height: 48,
+    borderRadius: 6,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 10,
+    paddingHorizontal: 2,
+  },
+  docBadgeText: {
+    fontSize: 9,
+    fontWeight: '800',
+    marginTop: 2,
+    letterSpacing: 0.5,
+  },
+  docInfo: {
     flex: 1,
+    marginRight: 8,
+    justifyContent: 'center',
+  },
+  docTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    lineHeight: 18,
+    marginBottom: 3,
+  },
+  docTitleMine: {
+    color: theme.myMessageTextColor || '#ffffff',
+  },
+  docTitleOther: {
+    color: theme.messageTextColor || theme.textColor || '#111b21',
+  },
+  docSubtitle: {
+    fontSize: 11,
+  },
+  docSubtitleMine: {
+    color: 'rgba(255, 255, 255, 0.75)',
+  },
+  docSubtitleOther: {
+    color: '#667781',
+  },
+  downloadBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    borderWidth: 1.5,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  downloadBtnMine: {
+    borderColor: 'rgba(255, 255, 255, 0.6)',
+    backgroundColor: 'rgba(255, 255, 255, 0.15)',
+  },
+  downloadBtnOther: {
+    borderColor: '#00a884',
+    backgroundColor: 'rgba(0, 168, 132, 0.08)',
+  },
+  docFooterWrapper: {
+    marginTop: 2,
   },
   textContainer: {
     flexDirection: 'row',
@@ -1537,7 +1806,6 @@ const styles = (theme) => StyleSheet.create({
     backgroundColor: theme.borderColor || '#e0e0e0',
     justifyContent: 'center',
     alignItems: 'center',
-    // marginBottom: 15,
   },
   largeAvatarLetter: {
     fontSize: 16,
@@ -1548,7 +1816,6 @@ const styles = (theme) => StyleSheet.create({
     fontSize: 16,
     fontWeight: 'bold',
     color: theme.groupInfoTextColor || theme.textColor || '#303030',
-    // marginBottom: 5,
   },
   participantCount: {
     fontSize: 12,

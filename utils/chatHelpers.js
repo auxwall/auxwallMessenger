@@ -8,19 +8,38 @@ export const mapMessageToGiftedChat = (msg, currentUserId, apiBaseUrl) => {
 
   const resolveUrl = (url) => {
     if (!url) return url;
-    let cleanUrl = typeof url === 'string' ? url.replace(':::fw:::', '') : url;
+    let cleanUrl = typeof url === 'string' ? url.replace(':::fw:::', '').trim().replace(/\\/g, '/') : url;
     
-    // If it's already an absolute URL, return it
-    if (cleanUrl.startsWith('http')) {
-        return cleanUrl;
+    // If local file URI on device, return as is
+    if (typeof cleanUrl === 'string' && (cleanUrl.startsWith('file://') || cleanUrl.startsWith('content://'))) {
+      return cleanUrl;
     }
     
-    // If it's a relative path starting with Auxwall, prepend the base URL
-    if (cleanUrl.startsWith('Auxwall')) {
-      let baseUrl = apiBaseUrl || '';
+    let baseUrl = apiBaseUrl || '';
+    if (baseUrl.endsWith('/api')) {
+      baseUrl = baseUrl.slice(0, -4);
+    }
+    if (baseUrl.endsWith('/')) {
+      baseUrl = baseUrl.slice(0, -1);
+    }
 
-      if (baseUrl.endsWith('/api')) {
-        baseUrl = baseUrl.slice(0, -4);
+    // If it's an HTTP URL, rewrite origin to active baseUrl so old or mismatched ports (e.g. :8000) match the active server port (:8009)
+    if (typeof cleanUrl === 'string' && (cleanUrl.startsWith('http://') || cleanUrl.startsWith('https://'))) {
+      if (baseUrl) {
+        const pathMatch = cleanUrl.match(/^https?:\/\/[^\/]+(\/.*)$/i);
+        if (pathMatch && pathMatch[1]) {
+          return `${baseUrl}${pathMatch[1]}`;
+        }
+      }
+      return cleanUrl;
+    }
+
+    if (typeof cleanUrl === 'string') {
+      if (cleanUrl.startsWith('/')) {
+        return `${baseUrl}${cleanUrl}`;
+      }
+      if (cleanUrl.startsWith('uploads/')) {
+        return `${baseUrl}/${cleanUrl}`;
       }
       return `${baseUrl}/uploads/${cleanUrl}`;
     }

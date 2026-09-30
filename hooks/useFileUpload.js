@@ -6,6 +6,41 @@ import * as ImageManipulator from 'expo-image-manipulator';
 import { Audio } from 'expo-av';
 import moment from 'moment';
 
+const uploadWithXHR = (url, formData, token) => {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', url);
+    if (token) {
+      xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+    }
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try {
+          resolve(JSON.parse(xhr.responseText));
+        } catch (_) {
+          resolve({ success: true, text: xhr.responseText });
+        }
+      } else {
+        let errorMessage = 'Upload failed';
+        try {
+          const errData = JSON.parse(xhr.responseText);
+          errorMessage = errData.message || errorMessage;
+        } catch (_) {
+          if (xhr.responseText && xhr.responseText.includes('too large')) {
+            errorMessage = 'File too large. Please select a smaller file.';
+          } else {
+            errorMessage = `Server Error (${xhr.status})`;
+          }
+        }
+        reject(new Error(errorMessage));
+      }
+    };
+    xhr.onerror = () => reject(new Error('Network request failed'));
+    xhr.ontimeout = () => reject(new Error('Upload timed out'));
+    xhr.send(formData);
+  });
+};
+
 export default function useFileUpload({ config, apiBaseUrl, accessToken }) {
   const [uploading, setUploading] = useState(false);
   const recordingRef = useRef(null);
@@ -58,51 +93,87 @@ export default function useFileUpload({ config, apiBaseUrl, accessToken }) {
       const ext = (fileName || 'file.dat').split('.').pop();
       const newFileName = `${moment().format('DD-MM-YYYY')}_${Date.now()}.${ext}`;
 
+      // Convert file URI to Blob for WinterCG-compliant fetch in Expo SDK 57 / React Native 0.86+
+      let fileBlob = null;
+      try {
+        const fileResponse = await fetch(finalUri);
+        fileBlob = await fileResponse.blob();
+      } catch (blobErr) {
+        console.log('Blob conversion skipped, falling back:', blobErr);
+      }
+
       const formData = new FormData();
       
       // Add metadata first for Multer
-      if (metadata.conversationId) formData.append('conversationId', metadata.conversationId);
-      if (metadata.type) formData.append('type', metadata.type);
-      if (metadata.senderId) formData.append('senderId', metadata.senderId);
-      if (metadata.companyId) formData.append('companyId', metadata.companyId);
+      if (metadata.conversationId) formData.append('conversationId', String(metadata.conversationId));
+      if (metadata.type) formData.append('type', String(metadata.type));
+      if (metadata.senderId) formData.append('senderId', String(metadata.senderId));
+      if (metadata.companyId) formData.append('companyId', String(metadata.companyId));
 
-      formData.append('file', {
-        uri: finalUri,
-        name: newFileName,
-        type: fileType || 'application/octet-stream',
-      });
-
-      const response = await fetch(uploadUrl, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${accessToken}`,
-        },
-        body: formData,
-      });
-
-      if (!response.ok) {
-        let errorMessage = 'Upload failed';
-        const errorText = await response.text();
-        
-        try {
-          const errorData = JSON.parse(errorText);
-          errorMessage = errorData.message || errorMessage;
-        } catch (e) {
-          if (errorText.includes('too large')) {
-            errorMessage = 'File too large. Please select a smaller file.';
-          } else {
-            errorMessage = `Server Error (${response.status})`;
-          }
-        }
-        throw new Error(errorMessage);
+      if (fileBlob) {
+        formData.append('file', fileBlob, newFileName);
+      } else {
+        formData.append('file', {
+          uri: finalUri,
+          name: newFileName,
+          type: fileType || 'application/octet-stream',
+        });
       }
 
-      const result = await response.json();
-      if (result.success) {
+      let result;
+      try {
+        const response = await fetch(uploadUrl, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${accessToken}`,
+          },
+          body: formData,
+        });
+
+        if (!response.ok) {
+          let errorMessage = 'Upload failed';
+          const errorText = await response.text();
+          try {
+            const errorData = JSON.parse(errorText);
+            errorMessage = errorData.message || errorMessage;
+          } catch (e) {
+            if (errorText.includes('too large')) {
+              errorMessage = 'File too large. Please select a smaller file.';
+            } else {
+              errorMessage = `Server Error (${response.status})`;
+            }
+          }
+          throw new Error(errorMessage);
+        }
+
+        result = await response.json();
+      } catch (fetchErr) {
+        // Fallback to XMLHttpRequest if fetch rejects (e.g. "unsupported FormDataPart implementation")
+        if (
+          fetchErr.message &&
+          (fetchErr.message.includes('FormDataPart') || fetchErr.message.includes('Network request failed'))
+        ) {
+          const xhrForm = new FormData();
+          if (metadata.conversationId) xhrForm.append('conversationId', String(metadata.conversationId));
+          if (metadata.type) xhrForm.append('type', String(metadata.type));
+          if (metadata.senderId) xhrForm.append('senderId', String(metadata.senderId));
+          if (metadata.companyId) xhrForm.append('companyId', String(metadata.companyId));
+          xhrForm.append('file', {
+            uri: finalUri,
+            name: newFileName,
+            type: fileType || 'application/octet-stream',
+          });
+          result = await uploadWithXHR(uploadUrl, xhrForm, accessToken);
+        } else {
+          throw fetchErr;
+        }
+      }
+
+      if (result && result.success) {
         // Return result object if message was created, otherwise just the URL
         return result.message ? result : result.url;
       } else {
-        throw new Error(result.message || 'Upload failed');
+        throw new Error(result?.message || 'Upload failed');
       }
     } catch (error) {
       Alert.alert('Upload Failed', error.message);
