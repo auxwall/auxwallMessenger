@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native';
-import { Audio } from 'expo-av';
+import Audio from '../utils/safeAudio';
 import { Ionicons } from '@expo/vector-icons';
 import moment from 'moment';
 

@@ -3,7 +3,7 @@ import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
 import { Alert, Platform } from 'react-native';
 import * as ImageManipulator from 'expo-image-manipulator';
-import { Audio } from 'expo-av';
+import Audio from '../utils/safeAudio';
 import moment from 'moment';
 
 const uploadWithXHR = (url, formData, token) => {
